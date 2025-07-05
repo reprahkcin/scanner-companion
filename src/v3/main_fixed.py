@@ -28,7 +28,7 @@ import serial
 # ──────────────────────────────────────────────────────────────────────────────
 
 SERIAL_PORT       = "/dev/ttyACM0"  # or "/dev/serial/by-id/..." 
-SERIAL_BAUDRATE   = 9600              # Match Arduino sketch baudrate
+SERIAL_BAUDRATE   = 115200            # Match motor_control_refactor.ino baudrate
 CAMERA_RESOLUTION = (320, 240)       # preview size (smaller for safety)
 JOG_STEP_DELAY    = 0.05             # seconds between steps during jog
 # ──────────────────────────────────────────────────────────────────────────────
@@ -190,100 +190,126 @@ class ScannerGUI(tk.Tk):
             self.status_var.set(f"Preview error: {e}")
             self.stop_preview()
 
-    def send_motor_command(self, motor, steps, direction):
+    def send_motor_command(self, command):
+        """Send command to Arduino and wait for response"""
         try:
             if not self.ser or not self.ser.is_open:
                 self.status_var.set("Serial connection not available")
                 return False
             
-            command = f"{motor}{steps}{direction}"
-            self.ser.write(command.encode())
+            # Send command with newline
+            full_command = command + "\n"
+            self.ser.write(full_command.encode())
             self.ser.flush()
-            time.sleep(0.1)
+            
+            # Wait for response
+            time.sleep(0.2)
             
             if self.ser.in_waiting > 0:
                 response = self.ser.readline().decode().strip()
                 if response:
-                    self.status_var.set(f"Arduino: {response}")
+                    if response == "OK":
+                        return True
+                    elif response.startswith("ERR"):
+                        self.status_var.set(f"Arduino error: {response}")
+                        return False
+                    else:
+                        # Numeric response (position)
+                        self.status_var.set(f"Arduino: {response}")
+                        return response
             
             return True
         except Exception as e:
             self.status_var.set(f"Serial error: {e}")
             return False
-
-    def calculate_steps_from_degrees(self, degrees):
-        steps_per_revolution = 200
-        return int((degrees / 360.0) * steps_per_revolution)
-
-    def calculate_steps_from_mm(self, mm):
-        steps_per_mm = 10
-        return int(mm * steps_per_mm)
+    
+    def get_motor_position(self, motor):
+        """Get current position from Arduino"""
+        command = f"GET_POS {motor}"
+        response = self.send_motor_command(command)
+        if response and response != True and response != False:
+            try:
+                return float(response)
+            except ValueError:
+                pass
+        return None
+    
+    def zero_motor_position(self, motor):
+        """Zero the motor position on Arduino"""
+        command = f"ZERO {motor}"
+        return self.send_motor_command(command)
 
     def motor1_ccw(self):
         try:
             step = float(self.motor1_step_var.get())
-            steps = self.calculate_steps_from_degrees(step)
+            command = f"ROTATE 1 {step} CCW"
             
-            if self.send_motor_command('1', steps, 'B'):
+            if self.send_motor_command(command):
                 self.motor1_position_deg -= step
                 self.motor1_pos_var.set(f"{self.motor1_position_deg:.1f}°")
-                self.status_var.set(f"Motor 1: CCW {step}° ({steps} steps)")
+                self.status_var.set(f"Motor 1: Rotated {step}° CCW")
             else:
-                self.status_var.set("Failed to send motor command")
+                self.status_var.set("Failed to rotate motor 1")
         except ValueError:
             self.status_var.set("Invalid step size for Motor 1")
 
     def motor1_cw(self):
         try:
             step = float(self.motor1_step_var.get())
-            steps = self.calculate_steps_from_degrees(step)
+            command = f"ROTATE 1 {step} CW"
             
-            if self.send_motor_command('1', steps, 'F'):
+            if self.send_motor_command(command):
                 self.motor1_position_deg += step
                 self.motor1_pos_var.set(f"{self.motor1_position_deg:.1f}°")
-                self.status_var.set(f"Motor 1: CW {step}° ({steps} steps)")
+                self.status_var.set(f"Motor 1: Rotated {step}° CW")
             else:
-                self.status_var.set("Failed to send motor command")
+                self.status_var.set("Failed to rotate motor 1")
         except ValueError:
             self.status_var.set("Invalid step size for Motor 1")
 
     def motor1_home(self):
-        self.motor1_position_deg = 0.0
-        self.motor1_pos_var.set("0.0°")
-        self.status_var.set("Motor 1: Reset to home position")
+        if self.zero_motor_position(1):
+            self.motor1_position_deg = 0.0
+            self.motor1_pos_var.set("0.0°")
+            self.status_var.set("Motor 1: Position zeroed")
+        else:
+            self.status_var.set("Failed to zero motor 1")
 
     def motor2_up(self):
         try:
             step = float(self.motor2_step_var.get())
-            steps = self.calculate_steps_from_mm(step)
+            command = f"MOVE 2 {step} FORWARD"
             
-            if self.send_motor_command('2', steps, 'F'):
+            if self.send_motor_command(command):
                 self.motor2_position_mm += step
                 self.motor2_pos_var.set(f"{self.motor2_position_mm:.1f}mm")
-                self.status_var.set(f"Motor 2: Up {step}mm ({steps} steps)")
+                self.status_var.set(f"Motor 2: Moved {step}mm forward")
             else:
-                self.status_var.set("Failed to send motor command")
+                self.status_var.set("Failed to move motor 2")
         except ValueError:
             self.status_var.set("Invalid step size for Motor 2")
 
     def motor2_down(self):
         try:
             step = float(self.motor2_step_var.get())
-            steps = self.calculate_steps_from_mm(step)
+            command = f"MOVE 2 {step} BACKWARD"
             
-            if self.send_motor_command('2', steps, 'B'):
+            if self.send_motor_command(command):
                 self.motor2_position_mm -= step
                 self.motor2_pos_var.set(f"{self.motor2_position_mm:.1f}mm")
-                self.status_var.set(f"Motor 2: Down {step}mm ({steps} steps)")
+                self.status_var.set(f"Motor 2: Moved {step}mm backward")
             else:
-                self.status_var.set("Failed to send motor command")
+                self.status_var.set("Failed to move motor 2")
         except ValueError:
             self.status_var.set("Invalid step size for Motor 2")
 
     def motor2_home(self):
-        self.motor2_position_mm = 0.0
-        self.motor2_pos_var.set("0.0mm")
-        self.status_var.set("Motor 2: Reset to home position")
+        if self.zero_motor_position(2):
+            self.motor2_position_mm = 0.0
+            self.motor2_pos_var.set("0.0mm")
+            self.status_var.set("Motor 2: Position zeroed")
+        else:
+            self.status_var.set("Failed to zero motor 2")
 
     def on_close(self):
         if self.preview_on:
