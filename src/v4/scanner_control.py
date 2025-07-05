@@ -1,4 +1,29 @@
 #!/usr/bin/env python3
+"""3D Scanner Control Panel v4.0
+
+A comprehensive control application for a dual-motor 3D photogrammetry scanner 
+using Raspberry Pi and Arduino. Provides automated calibration, focus interpolation,
+and multi-stack capture capabilities.
+
+This application controls:
+    - Rotation motor (Motor 1) for 360° specimen positioning
+    - Linear rail motor (Motor 2) for focus adjustment
+    - Pi Camera for image capture with manual settings
+    - Arduino communication via serial commands
+
+Features:
+    - Manual motor control with real-time position tracking
+    - Cardinal point calibration wizard (0°, 90°, 180°, 270°)
+    - Automatic focus interpolation for any angle
+    - Multi-stack capture with configurable parameters
+    - Organized file output with metadata
+    - Camera settings control (exposure, brightness)
+
+Author: Generated for 3D Scanner Project
+Date: July 2025
+Version: 4.0
+"""
+
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox, filedialog
@@ -47,7 +72,43 @@ CALIBRATION_ANGLES = [0, 90, 180, 270]
 # ──────────────────────────────────────────────────────────────────────────────
 
 class ScannerGUI(tk.Tk):
+    """Main GUI application for 3D Scanner Control Panel.
+    
+    This class provides a comprehensive interface for controlling a dual-motor
+    3D photogrammetry scanner. It includes manual controls, calibration wizard,
+    automated capture sequences, and camera settings.
+    
+    The application uses a tabbed interface with four main sections:
+        - Manual Control: Direct motor and camera control
+        - Calibration: Step-by-step focus calibration wizard
+        - Capture: Automated multi-stack scanning configuration
+        - Camera Settings: Manual camera parameter adjustment
+    
+    Attributes:
+        ser (serial.Serial): Arduino serial connection
+        camera (Picamera2): Pi camera instance
+        preview_on (bool): Camera preview state
+        motor1_position_deg (float): Current rotation motor position in degrees
+        motor2_position_mm (float): Current linear motor position in millimeters
+        calibration_data (dict): Focus positions at cardinal angles
+        is_calibrated (bool): Whether calibration is complete
+        capture_running (bool): Whether capture sequence is active
+        
+    Example:
+        app = ScannerGUI()
+        app.mainloop()
+    """
+    
     def __init__(self):
+        """Initialize the Scanner GUI application.
+        
+        Sets up the main window, establishes serial connection to Arduino,
+        initializes camera interface, creates all GUI components, and
+        prepares the application for user interaction.
+        
+        Raises:
+            serial.SerialException: If Arduino connection fails (non-fatal)
+        """
         super().__init__()
         self.title("3D Scanner Control Panel - v4.0")
         self.minsize(800, 600)
@@ -467,7 +528,21 @@ class ScannerGUI(tk.Tk):
             self.stop_preview()
 
     def send_motor_command(self, command):
-        """Send command to Arduino and wait for response"""
+        """Send command to Arduino and wait for response.
+        
+        Sends a text-based command to the Arduino over serial connection
+        and waits for acknowledgment. Handles timeout and error responses.
+        
+        Args:
+            command (str): Command string to send (e.g., "ROTATE 1 90 CW")
+            
+        Returns:
+            bool or str: True if successful, False if failed, or response string
+            
+        Example:
+            success = self.send_motor_command("ROTATE 1 90 CW")
+            position = self.send_motor_command("GET_POS 1")
+        """
         try:
             if not self.ser or not self.ser.is_open:
                 self.status_var.set("Serial connection not available")
@@ -500,7 +575,16 @@ class ScannerGUI(tk.Tk):
             return False
     
     def get_motor_position(self, motor):
-        """Get current position from Arduino"""
+        """Get current position from Arduino.
+        
+        Queries the Arduino for the current position of the specified motor.
+        
+        Args:
+            motor (int): Motor number (1 for rotation, 2 for linear)
+            
+        Returns:
+            float or None: Current position, or None if query failed
+        """
         command = f"GET_POS {motor}"
         response = self.send_motor_command(command)
         if response and response != True and response != False:
@@ -616,7 +700,21 @@ class ScannerGUI(tk.Tk):
 # =====================================================================
     
     def start_calibration(self):
-        """Start the calibration wizard"""
+        """Start the calibration wizard.
+        
+        Initiates the step-by-step calibration process for mapping focus positions
+        at cardinal angles (0°, 90°, 180°, 270°). Resets calibration data and
+        guides user through the workflow.
+        
+        The calibration process:
+            1. Move to each cardinal angle
+            2. Set near and far focus positions manually
+            3. Capture positions for interpolation
+            4. Validate complete dataset
+            
+        Note:
+            Disables start button and enables capture/next buttons during process.
+        """
         self.calibration_data = {}
         self.current_calibration_angle = 0
         self.current_calibration_focus = "near"
@@ -636,7 +734,17 @@ class ScannerGUI(tk.Tk):
         self.move_to_angle(0)
         
     def capture_calibration_position(self):
-        """Capture the current linear position for calibration"""
+        """Capture the current linear position for calibration.
+        
+        Records the current motor 2 position as either the near or far focus
+        point for the current calibration angle. Advances the calibration
+        workflow state.
+        
+        State Management:
+            - Stores position in calibration_data[angle][focus_type]
+            - Advances from "near" to "far" focus for current angle
+            - Updates UI to reflect current calibration step
+        """
         angle = CALIBRATION_ANGLES[self.current_calibration_angle]
         focus_type = self.current_calibration_focus
         position = self.motor2_position_mm
@@ -657,7 +765,18 @@ class ScannerGUI(tk.Tk):
             self.log_calibration(f"Angle {angle}° calibration complete.")
             
     def next_calibration_step(self):
-        """Move to next step in calibration"""
+        """Move to next step in calibration.
+        
+        Advances the calibration wizard to the next cardinal angle after
+        verifying that both near and far positions have been captured
+        for the current angle.
+        
+        Flow Control:
+            - Validates current angle completion
+            - Moves to next cardinal angle (0° → 90° → 180° → 270°)
+            - Calls complete_calibration() when all angles done
+            - Shows warning if current angle incomplete
+        """
         current_angle = CALIBRATION_ANGLES[self.current_calibration_angle]
         
         # Check if current angle is complete
@@ -685,7 +804,17 @@ class ScannerGUI(tk.Tk):
             messagebox.showwarning("Calibration", "Please capture both near and far positions for current angle.")
     
     def complete_calibration(self):
-        """Complete the calibration process"""
+        """Complete the calibration process.
+        
+        Finalizes calibration by setting the calibrated flag and updating
+        the UI state. Enables capture functionality and disables calibration
+        workflow buttons.
+        
+        UI Updates:
+            - Sets status to "Calibrated" with green color
+            - Enables save/capture buttons
+            - Disables calibration workflow buttons
+        """
         self.is_calibrated = True
         self.calibration_status_var.set("Calibrated")
         
@@ -704,7 +833,22 @@ class ScannerGUI(tk.Tk):
                 break
     
     def save_calibration(self):
-        """Save calibration data to file"""
+        """Save calibration data to file.
+        
+        Exports the current calibration data to a JSON file using a file
+        dialog. The saved file can be loaded later to restore calibration
+        without repeating the wizard.
+        
+        File Format:
+            JSON structure: {angle: {"near": mm_pos, "far": mm_pos}, ...}
+            
+        Example:
+            {
+                "0": {"near": 10.0, "far": 50.0},
+                "90": {"near": 12.0, "far": 52.0},
+                ...
+            }
+        """
         filename = filedialog.asksaveasfilename(
             defaultextension=".json",
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
@@ -721,7 +865,16 @@ class ScannerGUI(tk.Tk):
                 messagebox.showerror("Error", f"Failed to save calibration: {e}")
     
     def load_calibration(self):
-        """Load calibration data from file"""
+        """Load calibration data from file.
+        
+        Imports calibration data from a JSON file and validates the format.
+        If valid, enables capture functionality and updates the UI state.
+        
+        Validation:
+            - Checks all cardinal angles present
+            - Verifies near/far positions for each angle
+            - Shows error dialog if validation fails
+        """
         filename = filedialog.askopenfilename(
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
             title="Load Calibration Data"
@@ -751,7 +904,15 @@ class ScannerGUI(tk.Tk):
                 messagebox.showerror("Error", f"Failed to load calibration: {e}")
     
     def validate_calibration_data(self):
-        """Validate that calibration data is complete"""
+        """Validate that calibration data is complete.
+        
+        Checks that calibration data contains all required cardinal angles
+        (0°, 90°, 180°, 270°) and that each angle has both near and far
+        focus positions defined.
+        
+        Returns:
+            bool: True if calibration data is complete and valid
+        """
         for angle in CALIBRATION_ANGLES:
             if angle not in self.calibration_data:
                 return False
@@ -766,7 +927,20 @@ class ScannerGUI(tk.Tk):
         self.calibration_progress_text.see(tk.END)
     
     def move_to_angle(self, target_angle):
-        """Move motor 1 to specific angle"""
+        """Move motor 1 to specific angle.
+        
+        Commands the rotation motor to move to the specified angle position.
+        Calculates the required rotation direction and amount automatically.
+        
+        Args:
+            target_angle (float): Target angle in degrees (0-360)
+            
+        Returns:
+            bool: True if movement successful, False otherwise
+            
+        Note:
+            Updates internal position tracking and GUI display
+        """
         current_angle = self.motor1_position_deg
         rotation_needed = target_angle - current_angle
         
@@ -783,9 +957,27 @@ class ScannerGUI(tk.Tk):
         return False
     
     def interpolate_focus_position(self, angle, stack_position):
-        """
-        Interpolate focus position for given angle and stack position.
-        stack_position: 0.0 = near focus, 1.0 = far focus
+        """Interpolate focus position for given angle and stack position.
+        
+        Uses bilinear interpolation to calculate the optimal focus position
+        based on calibrated cardinal points and the desired stack level.
+        
+        Algorithm:
+            1. Find adjacent cardinal points for the given angle
+            2. Interpolate near/far positions between cardinal points
+            3. Interpolate between near/far for the stack position
+            4. Handle 270° to 0° wrap-around case
+        
+        Args:
+            angle (float): Target angle in degrees (0-360)
+            stack_position (float): Stack level (0.0=near focus, 1.0=far focus)
+            
+        Returns:
+            float: Interpolated linear rail position in millimeters
+            
+        Example:
+            # Get focus position for 45° at middle stack
+            pos = self.interpolate_focus_position(45.0, 0.5)
         """
         if not self.is_calibrated:
             return 0.0
@@ -878,7 +1070,38 @@ class ScannerGUI(tk.Tk):
             messagebox.showerror("Error", f"Test capture failed: {e}")
     
     def start_full_capture(self):
-        """Start the full automated capture sequence"""
+        """Start the full automated capture sequence.
+        
+        Launches a complete 360° multi-stack photogrammetry capture session.
+        Creates organized directory structure, saves metadata, and captures
+        images at calculated positions using calibration data.
+        
+        Workflow:
+            1. Validate calibration and settings
+            2. Create output directory structure
+            3. Save capture metadata and calibration data
+            4. For each stack level:
+                - Calculate focus position via interpolation
+                - For each shot angle:
+                    - Move motors to position
+                    - Wait for settling
+                    - Capture image with structured filename
+            5. Update progress and log results
+            
+        Directory Structure:
+            specimen_name/
+                session_YYYYMMDD_HHMMSS/
+                    metadata.json
+                    stack_00/
+                        stack_00_shot_000_angle_000.00.jpg
+                        stack_00_shot_001_angle_005.00.jpg
+                        ...
+                    stack_01/
+                    ...
+        
+        Raises:
+            ValueError: If calibration incomplete or invalid settings
+        """
         if not self.is_calibrated:
             messagebox.showerror("Error", "Please complete calibration first")
             return
@@ -921,7 +1144,22 @@ class ScannerGUI(tk.Tk):
         self.log_capture("Capture sequence stopped by user")
     
     def _run_capture_sequence(self):
-        """Run the full capture sequence in a separate thread"""
+        """Run the full capture sequence in a separate thread
+        
+        This method executes the complete capture workflow in a background thread
+        to prevent GUI freezing. Handles all motor movements, camera operations,
+        and file management.
+        
+        Threading Safety:
+            - Updates GUI using self.after() calls
+            - Checks self.capture_running flag for user interruption
+            - Sets daemon thread for clean shutdown
+            
+        Error Handling:
+            - Graceful recovery from motor/camera errors
+            - User feedback via progress updates and logging
+            - Proper cleanup in finally block
+        """
         try:
             # Create output directory structure
             specimen_dir = os.path.join(self.output_dir.get(), self.specimen_name.get())
