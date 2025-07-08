@@ -189,15 +189,19 @@ class ScannerGUI(tk.Tk):
         self.status_bar = ttk.Label(self, textvariable=self.status_var, relief="sunken", anchor="w")
 
     def _build_manual_tab(self):
+        """Build the manual control tab with simplified layout"""
         # --- Camera Frame ---
-        self.camera_frame = ttk.LabelFrame(self.manual_tab, text="Camera", padding=10)
+        self.camera_frame = ttk.LabelFrame(self.manual_tab, text="Camera Preview", padding=10)
         self.preview_label = tk.Label(self.camera_frame, bg="black", anchor="center")
         self.preview_label.grid(row=0, column=0, columnspan=2, padx=5, pady=5)
         self.btn_preview = ttk.Button(self.camera_frame, text="Start Preview", command=self.toggle_preview)
         self.btn_preview.grid(row=1, column=0, columnspan=2, pady=(5,0))
 
+        # --- Motor Controls Frame ---
+        motors_frame = ttk.Frame(self.manual_tab)
+        
         # --- Motor 1 Frame ---
-        self.motor1_frame = ttk.LabelFrame(self.manual_tab, text="Motor 1 (Rotation)", padding=10)
+        self.motor1_frame = ttk.LabelFrame(motors_frame, text="Motor 1 (Rotation)", padding=10)
         
         self.motor1_pos_var = tk.StringVar(value="0.0°")
         ttk.Label(self.motor1_frame, text="Position:").grid(row=0, column=0, sticky="w")
@@ -222,7 +226,7 @@ class ScannerGUI(tk.Tk):
         self.btn_m1_cw.grid(row=0, column=2, padx=(5,0))
 
         # --- Motor 2 Frame ---
-        self.motor2_frame = ttk.LabelFrame(self.manual_tab, text="Motor 2 (Linear)", padding=10)
+        self.motor2_frame = ttk.LabelFrame(motors_frame, text="Motor 2 (Linear)", padding=10)
         
         self.motor2_pos_var = tk.StringVar(value="0.0mm")
         ttk.Label(self.motor2_frame, text="Position:").grid(row=0, column=0, sticky="w")
@@ -248,90 +252,200 @@ class ScannerGUI(tk.Tk):
 
         # Layout manual tab
         self.manual_tab.columnconfigure(0, weight=1)
-        self.manual_tab.columnconfigure(1, weight=1)
         self.manual_tab.rowconfigure(0, weight=1)
         self.manual_tab.rowconfigure(1, weight=1)
         
-        self.camera_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=5, sticky="nsew")
-        self.motor1_frame.grid(row=1, column=0, padx=(10,5), pady=5, sticky="nsew")
-        self.motor2_frame.grid(row=1, column=1, padx=(5,10), pady=5, sticky="nsew")
+        self.camera_frame.grid(row=0, column=0, padx=10, pady=5, sticky="nsew")
+        motors_frame.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
+        
+        # Configure motors frame
+        motors_frame.columnconfigure(0, weight=1)
+        motors_frame.columnconfigure(1, weight=1)
+        
+        self.motor1_frame.grid(row=0, column=0, padx=(0,5), pady=5, sticky="nsew")
+        self.motor2_frame.grid(row=0, column=1, padx=(5,0), pady=5, sticky="nsew")
 
     def _build_calibration_tab(self):
+        # Create main layout with left and right sections
+        main_frame = ttk.Frame(self.calibration_tab)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        # Left column for camera and motor controls
+        left_column = ttk.Frame(main_frame)
+        left_column.pack(side="left", fill="both", expand=True, padx=(0,5))
+        
+        # Right column for calibration workflow
+        right_column = ttk.Frame(main_frame)
+        right_column.pack(side="right", fill="both", expand=True, padx=(5,0))
+        
+        # === LEFT COLUMN: Camera and Motor Controls ===
+        
+        # Camera preview (same as manual tab)
+        self.cal_camera_frame = ttk.LabelFrame(left_column, text="Camera Preview", padding=10)
+        self.cal_camera_frame.pack(fill="both", expand=True, pady=(0,10))
+        
+        # Configure frame grid
+        self.cal_camera_frame.columnconfigure(0, weight=1)
+        self.cal_camera_frame.rowconfigure(0, weight=1)
+        
+        self.cal_preview_label = tk.Label(self.cal_camera_frame, bg="black", anchor="center")
+        self.cal_preview_label.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+        
+        self.cal_btn_preview = ttk.Button(self.cal_camera_frame, text="Start Preview", 
+                                         command=self.toggle_preview)
+        self.cal_btn_preview.grid(row=1, column=0, pady=(5,0))
+        
+        # Motor 1 controls (rotation)
+        self.cal_motor1_frame = ttk.LabelFrame(left_column, text="Rotation Motor", padding=10)
+        self.cal_motor1_frame.pack(fill="x", pady=(0,10))
+        
+        # Position display
+        pos_frame1 = ttk.Frame(self.cal_motor1_frame)
+        pos_frame1.pack(fill="x", pady=(0,5))
+        ttk.Label(pos_frame1, text="Position:").pack(side="left")
+        ttk.Label(pos_frame1, textvariable=self.motor1_pos_var, 
+                 font=("TkDefaultFont", 10, "bold")).pack(side="left", padx=(5,0))
+        
+        # Step size
+        step_frame1 = ttk.Frame(self.cal_motor1_frame)
+        step_frame1.pack(fill="x", pady=(0,5))
+        ttk.Label(step_frame1, text="Step:").pack(side="left")
+        self.cal_motor1_step_var = tk.StringVar(value="1.0")
+        step_entry1 = ttk.Entry(step_frame1, textvariable=self.cal_motor1_step_var, width=8)
+        step_entry1.pack(side="left", padx=(5,0))
+        ttk.Label(step_frame1, text="degrees").pack(side="left", padx=(5,0))
+        
+        # Control buttons
+        btn_frame1 = ttk.Frame(self.cal_motor1_frame)
+        btn_frame1.pack(fill="x")
+        
+        ttk.Button(btn_frame1, text="◀ CCW", command=self.cal_motor1_ccw).pack(side="left", padx=(0,5))
+        ttk.Button(btn_frame1, text="⌂ Home", command=self.motor1_home).pack(side="left", padx=5)
+        ttk.Button(btn_frame1, text="CW ▶", command=self.cal_motor1_cw).pack(side="left", padx=(5,0))
+        
+        # Motor 2 controls (linear)
+        self.cal_motor2_frame = ttk.LabelFrame(left_column, text="Focus Motor (Linear)", padding=10)
+        self.cal_motor2_frame.pack(fill="x")
+        
+        # Position display
+        pos_frame2 = ttk.Frame(self.cal_motor2_frame)
+        pos_frame2.pack(fill="x", pady=(0,5))
+        ttk.Label(pos_frame2, text="Position:").pack(side="left")
+        ttk.Label(pos_frame2, textvariable=self.motor2_pos_var, 
+                 font=("TkDefaultFont", 10, "bold")).pack(side="left", padx=(5,0))
+        
+        # Step size
+        step_frame2 = ttk.Frame(self.cal_motor2_frame)
+        step_frame2.pack(fill="x", pady=(0,5))
+        ttk.Label(step_frame2, text="Step:").pack(side="left")
+        self.cal_motor2_step_var = tk.StringVar(value="0.5")
+        step_entry2 = ttk.Entry(step_frame2, textvariable=self.cal_motor2_step_var, width=8)
+        step_entry2.pack(side="left", padx=(5,0))
+        ttk.Label(step_frame2, text="mm").pack(side="left", padx=(5,0))
+        
+        # Control buttons
+        btn_frame2 = ttk.Frame(self.cal_motor2_frame)
+        btn_frame2.pack(fill="x")
+        
+        ttk.Button(btn_frame2, text="▼ Back", command=self.cal_motor2_down).pack(side="left", padx=(0,5))
+        ttk.Button(btn_frame2, text="⌂ Home", command=self.motor2_home).pack(side="left", padx=5)
+        ttk.Button(btn_frame2, text="▲ Forward", command=self.cal_motor2_up).pack(side="left", padx=(5,0))
+        
+        # === RIGHT COLUMN: Calibration Workflow ===
+        
         # Calibration status
-        self.calibration_status_frame = ttk.LabelFrame(self.calibration_tab, text="Calibration Status", padding=10)
+        self.calibration_status_frame = ttk.LabelFrame(right_column, text="Calibration Status", padding=10)
+        self.calibration_status_frame.pack(fill="x", pady=(0,10))
         
         self.calibration_status_var = tk.StringVar(value="Not Calibrated")
-        ttk.Label(self.calibration_status_frame, text="Status:").grid(row=0, column=0, sticky="w")
-        ttk.Label(self.calibration_status_frame, textvariable=self.calibration_status_var, 
-                 font=("TkDefaultFont", 10, "bold"), foreground="red").grid(row=0, column=1, sticky="w")
-        
-        # Calibration instructions
-        instructions = """Calibration Workflow:
-1. Position specimen at 0° (front)
-2. Set near and far focus positions
-3. Repeat for 90°, 180°, and 270°
-4. System will interpolate focus for all angles"""
-        
-        self.instructions_label = tk.Label(self.calibration_tab, text=instructions, 
-                                          justify="left", bg="#f0f0f0", padx=10, pady=10)
+        status_frame = ttk.Frame(self.calibration_status_frame)
+        status_frame.pack(fill="x")
+        ttk.Label(status_frame, text="Status:").pack(side="left")
+        ttk.Label(status_frame, textvariable=self.calibration_status_var, 
+                 font=("TkDefaultFont", 10, "bold"), foreground="red").pack(side="left", padx=(5,0))
         
         # Current calibration step
-        self.calibration_step_frame = ttk.LabelFrame(self.calibration_tab, text="Current Step", padding=10)
+        self.calibration_step_frame = ttk.LabelFrame(right_column, text="Current Step", padding=10)
+        self.calibration_step_frame.pack(fill="x", pady=(0,10))
         
         self.current_angle_var = tk.StringVar(value="0°")
         self.current_focus_var = tk.StringVar(value="Near")
         
-        ttk.Label(self.calibration_step_frame, text="Angle:").grid(row=0, column=0, sticky="w")
-        ttk.Label(self.calibration_step_frame, textvariable=self.current_angle_var, 
-                 font=("TkDefaultFont", 12, "bold")).grid(row=0, column=1, sticky="w", padx=(5,0))
+        step_info_frame = ttk.Frame(self.calibration_step_frame)
+        step_info_frame.pack(fill="x")
         
-        ttk.Label(self.calibration_step_frame, text="Focus:").grid(row=1, column=0, sticky="w")
-        ttk.Label(self.calibration_step_frame, textvariable=self.current_focus_var, 
-                 font=("TkDefaultFont", 12, "bold")).grid(row=1, column=1, sticky="w", padx=(5,0))
+        angle_frame = ttk.Frame(step_info_frame)
+        angle_frame.pack(fill="x", pady=(0,5))
+        ttk.Label(angle_frame, text="Angle:").pack(side="left")
+        ttk.Label(angle_frame, textvariable=self.current_angle_var, 
+                 font=("TkDefaultFont", 12, "bold")).pack(side="left", padx=(5,0))
+        
+        focus_frame = ttk.Frame(step_info_frame)
+        focus_frame.pack(fill="x")
+        ttk.Label(focus_frame, text="Focus:").pack(side="left")
+        ttk.Label(focus_frame, textvariable=self.current_focus_var, 
+                 font=("TkDefaultFont", 12, "bold")).pack(side="left", padx=(5,0))
+        
+        # Calibration instructions
+        instructions = """Calibration Workflow:
+1. Use motor controls to position at current angle
+2. Use focus motor to set near/far positions
+3. Click "Capture Position" for each focus
+4. Click "Next Step" when angle complete
+5. Repeat for all cardinal angles"""
+        
+        self.instructions_frame = ttk.LabelFrame(right_column, text="Instructions", padding=10)
+        self.instructions_frame.pack(fill="x", pady=(0,10))
+        
+        self.instructions_label = tk.Label(self.instructions_frame, text=instructions, 
+                                          justify="left", wraplength=300)
+        self.instructions_label.pack()
         
         # Calibration controls
-        self.calibration_controls_frame = ttk.LabelFrame(self.calibration_tab, text="Controls", padding=10)
+        self.calibration_controls_frame = ttk.LabelFrame(right_column, text="Calibration Controls", padding=10)
+        self.calibration_controls_frame.pack(fill="x", pady=(0,10))
         
-        self.btn_start_calibration = ttk.Button(self.calibration_controls_frame, text="Start Calibration", 
+        controls_grid = ttk.Frame(self.calibration_controls_frame)
+        controls_grid.pack(fill="x")
+        
+        self.btn_start_calibration = ttk.Button(controls_grid, text="Start Calibration", 
                                                command=self.start_calibration)
-        self.btn_start_calibration.grid(row=0, column=0, pady=5)
+        self.btn_start_calibration.grid(row=0, column=0, pady=2, sticky="ew")
         
-        self.btn_capture_position = ttk.Button(self.calibration_controls_frame, text="Capture Position", 
+        self.btn_capture_position = ttk.Button(controls_grid, text="Capture Position", 
                                               command=self.capture_calibration_position, state="disabled")
-        self.btn_capture_position.grid(row=0, column=1, padx=(10,0), pady=5)
+        self.btn_capture_position.grid(row=0, column=1, padx=(5,0), pady=2, sticky="ew")
         
-        self.btn_next_step = ttk.Button(self.calibration_controls_frame, text="Next Step", 
+        self.btn_next_step = ttk.Button(controls_grid, text="Next Step", 
                                        command=self.next_calibration_step, state="disabled")
-        self.btn_next_step.grid(row=0, column=2, padx=(10,0), pady=5)
+        self.btn_next_step.grid(row=1, column=0, pady=2, sticky="ew")
         
-        self.btn_save_calibration = ttk.Button(self.calibration_controls_frame, text="Save Calibration", 
+        self.btn_save_calibration = ttk.Button(controls_grid, text="Save Calibration", 
                                               command=self.save_calibration, state="disabled")
-        self.btn_save_calibration.grid(row=1, column=0, pady=5)
+        self.btn_save_calibration.grid(row=2, column=0, pady=2, sticky="ew")
         
-        self.btn_load_calibration = ttk.Button(self.calibration_controls_frame, text="Load Calibration", 
+        self.btn_load_calibration = ttk.Button(controls_grid, text="Load Calibration", 
                                               command=self.load_calibration)
-        self.btn_load_calibration.grid(row=1, column=1, padx=(10,0), pady=5)
+        self.btn_load_calibration.grid(row=2, column=1, padx=(5,0), pady=2, sticky="ew")
+        
+        controls_grid.columnconfigure(0, weight=1)
+        controls_grid.columnconfigure(1, weight=1)
         
         # Calibration progress
-        self.calibration_progress_frame = ttk.LabelFrame(self.calibration_tab, text="Progress", padding=10)
+        self.calibration_progress_frame = ttk.LabelFrame(right_column, text="Progress Log", padding=10)
+        self.calibration_progress_frame.pack(fill="both", expand=True)
         
-        self.calibration_progress_text = tk.Text(self.calibration_progress_frame, height=6, width=50)
-        self.calibration_progress_text.grid(row=0, column=0, sticky="nsew")
+        # Create frame for text and scrollbar
+        log_frame = ttk.Frame(self.calibration_progress_frame)
+        log_frame.pack(fill="both", expand=True)
         
-        scrollbar = ttk.Scrollbar(self.calibration_progress_frame, orient="vertical", 
+        self.calibration_progress_text = tk.Text(log_frame, height=8, width=40)
+        self.calibration_progress_text.pack(side="left", fill="both", expand=True)
+        
+        scrollbar = ttk.Scrollbar(log_frame, orient="vertical", 
                                  command=self.calibration_progress_text.yview)
-        scrollbar.grid(row=0, column=1, sticky="ns")
+        scrollbar.pack(side="right", fill="y")
         self.calibration_progress_text.config(yscrollcommand=scrollbar.set)
-        
-        # Layout calibration tab
-        self.calibration_tab.rowconfigure(4, weight=1)
-        self.calibration_tab.columnconfigure(0, weight=1)
-        
-        self.calibration_status_frame.grid(row=0, column=0, padx=10, pady=5, sticky="ew")
-        self.instructions_label.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
-        self.calibration_step_frame.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
-        self.calibration_controls_frame.grid(row=3, column=0, padx=10, pady=5, sticky="ew")
-        self.calibration_progress_frame.grid(row=4, column=0, padx=10, pady=5, sticky="nsew")
 
     def _build_capture_tab(self):
         # Specimen settings
@@ -471,6 +585,7 @@ class ScannerGUI(tk.Tk):
         self.status_bar.grid(row=1, column=0, sticky="ew", padx=10, pady=(5,10))
 
     def toggle_preview(self):
+        """Toggle camera preview for both manual and calibration tabs"""
         if not PICAMERA2_OK:
             self.status_var.set("picamera2 is not installed.")
             return
@@ -481,9 +596,11 @@ class ScannerGUI(tk.Tk):
         if not self.preview_on:
             self.start_preview()
             self.btn_preview.config(text="Stop Preview")
+            self.cal_btn_preview.config(text="Stop Preview")
         else:
             self.stop_preview()
             self.btn_preview.config(text="Start Preview")
+            self.cal_btn_preview.config(text="Start Preview")
 
     def start_preview(self):
         try:
@@ -505,6 +622,7 @@ class ScannerGUI(tk.Tk):
         self.preview_on = False
 
     def _update_preview_frame(self):
+        """Update camera preview in both manual and calibration tabs"""
         if not self.preview_on:
             return
         try:
@@ -521,7 +639,11 @@ class ScannerGUI(tk.Tk):
             
             photo = ImageTk.PhotoImage(image)
             self.preview_image = photo
+            
+            # Update both preview labels
             self.preview_label.config(image=photo)
+            self.cal_preview_label.config(image=photo)
+            
             self.after(50, self._update_preview_frame)
         except Exception as e:
             self.status_var.set(f"Preview error: {e}")
@@ -1364,6 +1486,70 @@ class ScannerGUI(tk.Tk):
             self.camera_info_text.insert(1.0, f"Error getting camera info: {e}")
             self.camera_info_text.config(state="disabled")
 
+# =====================================================================
+# CALIBRATION TAB MOTOR CONTROLS
+# =====================================================================
+    
+    def cal_motor1_ccw(self):
+        """Motor 1 CCW control for calibration tab"""
+        try:
+            step = float(self.cal_motor1_step_var.get())
+            command = f"ROTATE 1 {step} CCW"
+            
+            if self.send_motor_command(command):
+                self.motor1_position_deg -= step
+                self.motor1_pos_var.set(f"{self.motor1_position_deg:.1f}°")
+                self.status_var.set(f"Motor 1: Rotated {step}° CCW")
+            else:
+                self.status_var.set("Failed to rotate motor 1")
+        except ValueError:
+            self.status_var.set("Invalid step size for Motor 1")
+
+    def cal_motor1_cw(self):
+        """Motor 1 CW control for calibration tab"""
+        try:
+            step = float(self.cal_motor1_step_var.get())
+            command = f"ROTATE 1 {step} CW"
+            
+            if self.send_motor_command(command):
+                self.motor1_position_deg += step
+                self.motor1_pos_var.set(f"{self.motor1_position_deg:.1f}°")
+                self.status_var.set(f"Motor 1: Rotated {step}° CW")
+            else:
+                self.status_var.set("Failed to rotate motor 1")
+        except ValueError:
+            self.status_var.set("Invalid step size for Motor 1")
+
+    def cal_motor2_up(self):
+        """Motor 2 forward control for calibration tab"""
+        try:
+            step = float(self.cal_motor2_step_var.get())
+            command = f"MOVE 2 {step} FORWARD"
+            
+            if self.send_motor_command(command):
+                self.motor2_position_mm += step
+                self.motor2_pos_var.set(f"{self.motor2_position_mm:.1f}mm")
+                self.status_var.set(f"Motor 2: Moved {step}mm forward")
+            else:
+                self.status_var.set("Failed to move motor 2")
+        except ValueError:
+            self.status_var.set("Invalid step size for Motor 2")
+
+    def cal_motor2_down(self):
+        """Motor 2 backward control for calibration tab"""
+        try:
+            step = float(self.cal_motor2_step_var.get())
+            command = f"MOVE 2 {step} BACKWARD"
+            
+            if self.send_motor_command(command):
+                self.motor2_position_mm -= step
+                self.motor2_pos_var.set(f"{self.motor2_position_mm:.1f}mm")
+                self.status_var.set(f"Motor 2: Moved {step}mm backward")
+            else:
+                self.status_var.set("Failed to move motor 2")
+        except ValueError:
+            self.status_var.set("Invalid step size for Motor 2")
+    
 if __name__ == "__main__":
     print("Starting 3D Scanner Control Panel v4.0...")
     
