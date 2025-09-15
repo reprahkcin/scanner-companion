@@ -46,3 +46,10 @@ All notable changes to this project will be documented in this file.
 ### Maintenance
 - Removed an empty/failing GitHub Actions workflow (`.github/workflows/code-quality.yml`); retained a minimal basic syntax check on push/PR.
 
+
+## [1.0.2] - 2025-09-15
+
+### Maintenance
+- Temporarily removed all GitHub Actions workflows to stop failure emails while we stabilize the project CI on Raspberry Pi-specific dependencies.
+- We'll reintroduce a minimal CI later (e.g., pure syntax check or docs-only jobs) that doesn't depend on Pi hardware.
+
