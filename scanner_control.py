@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""3D Scanner Control Panel v4.0
+"""3D Scanner Control Panel v1.0
 
 A comprehensive control application for a dual-motor 3D photogrammetry scanner 
 using Raspberry Pi and Arduino. Provides automated calibration, focus interpolation,
@@ -20,8 +20,8 @@ Features:
     - Camera settings control (exposure, brightness)
 
 Author: Generated for 3D Scanner Project
-Date: July 2025
-Version: 4.0
+Date: September 2025
+Version: 1.0
 """
 
 import tkinter as tk
@@ -59,6 +59,7 @@ SERIAL_PORT       = "/dev/ttyACM0"  # or "/dev/serial/by-id/..."
 SERIAL_BAUDRATE   = 115200            # Match motor_control_refactor.ino baudrate
 CAMERA_RESOLUTION = (320, 240)       # preview size (smaller for safety)
 JOG_STEP_DELAY    = 0.05             # seconds between steps during jog
+PREVIEW_COLOR_SWAP = True            # swap BGR->RGB for preview if colors look wrong
 
 # Capture defaults
 DEFAULT_OUTPUT_DIR = os.path.expanduser("~/Desktop/scanner_captures")
@@ -110,7 +111,7 @@ class ScannerGUI(tk.Tk):
             serial.SerialException: If Arduino connection fails (non-fatal)
         """
         super().__init__()
-        self.title("3D Scanner Control Panel - v4.0")
+        self.title("3D Scanner Control Panel - v1.0")
         self.minsize(800, 600)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -126,6 +127,8 @@ class ScannerGUI(tk.Tk):
         self.camera = None
         self.preview_on = False
         self.preview_image = None
+        self.preview_update_active = False  # allow pausing preview updates during capture
+        self.camera_lock = threading.Lock()  # guard camera access across threads
 
         # === Motor position trackers ===
         self.motor1_position_deg = 0.0
@@ -427,6 +430,11 @@ class ScannerGUI(tk.Tk):
         self.btn_load_calibration = ttk.Button(controls_grid, text="Load Calibration", 
                                               command=self.load_calibration)
         self.btn_load_calibration.grid(row=2, column=1, padx=(5,0), pady=2, sticky="ew")
+
+        # Reset/Start Over button
+        self.btn_reset_calibration = ttk.Button(controls_grid, text="Reset / Start Over",
+                                               command=self.reset_calibration)
+        self.btn_reset_calibration.grid(row=3, column=0, columnspan=2, pady=(8,2), sticky="ew")
         
         controls_grid.columnconfigure(0, weight=1)
         controls_grid.columnconfigure(1, weight=1)
@@ -465,15 +473,19 @@ class ScannerGUI(tk.Tk):
         # Capture settings
         self.capture_settings_frame = ttk.LabelFrame(self.capture_tab, text="Capture Settings", padding=10)
         
-        ttk.Label(self.capture_settings_frame, text="Stacks:").grid(row=0, column=0, sticky="w")
-        self.stacks_spinbox = ttk.Spinbox(self.capture_settings_frame, from_=1, to=20, 
+        ttk.Label(self.capture_settings_frame, text="Perspectives (angles):").grid(row=0, column=0, sticky="w")
+        self.stacks_spinbox = ttk.Spinbox(self.capture_settings_frame, from_=1, to=360, 
                                          textvariable=self.stacks_count, width=10)
         self.stacks_spinbox.grid(row=0, column=1, sticky="w", padx=(5,0))
         
-        ttk.Label(self.capture_settings_frame, text="Shots per Stack:").grid(row=1, column=0, sticky="w")
-        self.shots_spinbox = ttk.Spinbox(self.capture_settings_frame, from_=12, to=360, 
+        ttk.Label(self.capture_settings_frame, text="Focus slices per angle:").grid(row=1, column=0, sticky="w")
+        self.shots_spinbox = ttk.Spinbox(self.capture_settings_frame, from_=1, to=360, 
                                         textvariable=self.shots_per_stack, width=10)
         self.shots_spinbox.grid(row=1, column=1, sticky="w", padx=(5,0))
+        
+        # Show computed angle step to clarify spacing
+        self.angle_step_label_var = tk.StringVar(value="Angle step: —")
+        ttk.Label(self.capture_settings_frame, textvariable=self.angle_step_label_var).grid(row=0, column=2, sticky="w", padx=(10,0))
         
         ttk.Label(self.capture_settings_frame, text="Settle Delay (s):").grid(row=2, column=0, sticky="w")
         self.settle_spinbox = ttk.Spinbox(self.capture_settings_frame, from_=0.1, to=5.0, increment=0.1,
@@ -484,6 +496,22 @@ class ScannerGUI(tk.Tk):
         self.format_combo = ttk.Combobox(self.capture_settings_frame, textvariable=self.image_format, 
                                         values=["JPG", "PNG", "TIFF"], state="readonly", width=8)
         self.format_combo.grid(row=3, column=1, sticky="w", padx=(5,0))
+
+        # Update angle step label whenever perspectives value changes
+        def _update_angle_step_label(*_):
+            try:
+                perspectives = max(1, int(self.stacks_count.get()))
+            except Exception:
+                perspectives = 1
+            step = 360.0 / perspectives
+            self.angle_step_label_var.set(f"Angle step: {step:.2f}°")
+        # Trace and initial update
+        try:
+            self.stacks_count.trace_add('write', lambda *args: _update_angle_step_label())
+        except AttributeError:
+            # Fallback for older Tk versions
+            self.stacks_count.trace('w', lambda *args: _update_angle_step_label())
+        _update_angle_step_label()
         
         # Capture controls
         self.capture_controls_frame = ttk.LabelFrame(self.capture_tab, text="Controls", padding=10)
@@ -612,26 +640,34 @@ class ScannerGUI(tk.Tk):
                 self.camera.configure(config)
             self.camera.start()
             self.preview_on = True
-            self.after(500, self._update_preview_frame)
+            self.preview_update_active = True
+            self.after(200, self._update_preview_frame)
         except Exception as e:
             self.status_var.set(f"Camera error: {e}")
 
     def stop_preview(self):
+        self.preview_update_active = False
         if self.camera is not None:
             self.camera.stop()
         self.preview_on = False
 
     def _update_preview_frame(self):
         """Update camera preview in both manual and calibration tabs"""
-        if not self.preview_on:
+        if not self.preview_on or not self.preview_update_active:
             return
         try:
-            frame = self.camera.capture_array("main")
-            
-            if len(frame.shape) == 3 and frame.shape[2] == 3:
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                image = Image.fromarray(frame_rgb, 'RGB')
-            else:
+            with self.camera_lock:
+                frame = self.camera.capture_array("main")
+            # Picamera2 preview is configured as RGB888; avoid expensive cv2 conversion
+            try:
+                # Apply optional color swap (common if frame is actually BGR)
+                if PREVIEW_COLOR_SWAP and hasattr(frame, 'shape') and len(frame.shape) == 3 and frame.shape[2] == 3:
+                    arr = frame[:, :, ::-1]
+                else:
+                    arr = frame
+                image = Image.fromarray(arr, 'RGB')
+            except Exception:
+                # Fallback if mode not matching
                 image = Image.fromarray(frame)
 
             if image.size != CAMERA_RESOLUTION:
@@ -644,54 +680,72 @@ class ScannerGUI(tk.Tk):
             self.preview_label.config(image=photo)
             self.cal_preview_label.config(image=photo)
             
-            self.after(50, self._update_preview_frame)
+            # Throttle updates a bit to reduce CPU load
+            self.after(150, self._update_preview_frame)
         except Exception as e:
             self.status_var.set(f"Preview error: {e}")
             self.stop_preview()
 
-    def send_motor_command(self, command):
-        """Send command to Arduino and wait for response.
-        
-        Sends a text-based command to the Arduino over serial connection
-        and waits for acknowledgment. Handles timeout and error responses.
-        
+    def send_motor_command(self, command, wait_for_done=False, timeout=120):
+        """Send command to Arduino and block until completion.
+
+        The Arduino sketch prints "OK" only after finishing a motion command
+        (ROTATE/MOVE). For queries like GET_POS, it returns a numeric value.
+        We wait until we see "OK"/"ERR"/number or the timeout elapses.
+
         Args:
             command (str): Command string to send (e.g., "ROTATE 1 90 CW")
-            
+            wait_for_done (bool): Ignored; retained for backward compatibility
+            timeout (int): Max seconds to wait for a response
+
         Returns:
-            bool or str: True if successful, False if failed, or response string
-            
-        Example:
-            success = self.send_motor_command("ROTATE 1 90 CW")
-            position = self.send_motor_command("GET_POS 1")
+            bool or str: True if successful (OK), False on ERR/timeout,
+                         or a string for GET_POS numeric responses.
         """
         try:
             if not self.ser or not self.ser.is_open:
                 self.status_var.set("Serial connection not available")
                 return False
-            
-            # Send command with newline
-            full_command = command + "\n"
+
+            # Clear any stale input to avoid consuming previous lines
+            try:
+                self.ser.reset_input_buffer()
+            except Exception:
+                pass
+
+            # Send command
+            full_command = command.strip() + "\n"
             self.ser.write(full_command.encode())
             self.ser.flush()
-            
-            # Wait for response
-            time.sleep(0.2)
-            
-            if self.ser.in_waiting > 0:
-                response = self.ser.readline().decode().strip()
-                if response:
-                    if response == "OK":
-                        return True
-                    elif response.startswith("ERR"):
-                        self.status_var.set(f"Arduino error: {response}")
-                        return False
-                    else:
-                        # Numeric response (position)
-                        self.status_var.set(f"Arduino: {response}")
-                        return response
-            
-            return True
+
+            is_query = command.strip().upper().startswith("GET_POS")
+            start = time.time()
+            last_seen = ""
+
+            while time.time() - start < timeout:
+                line = self.ser.readline().decode(errors='ignore').strip()
+                if not line:
+                    time.sleep(0.01)
+                    continue
+                last_seen = line
+
+                # Skip boot or banner lines
+                if line.lower().startswith("ready"):
+                    continue
+
+                if is_query:
+                    # Return raw numeric string; caller parses to float
+                    return line
+
+                if line == "OK":
+                    return True
+                if line.startswith("ERR"):
+                    self.status_var.set(f"Arduino error: {line}")
+                    return False
+
+            # Timeout
+            self.status_var.set(f"Timeout waiting for response to '{command}'. Last: '{last_seen}'")
+            return False
         except Exception as e:
             self.status_var.set(f"Serial error: {e}")
             return False
@@ -851,9 +905,9 @@ class ScannerGUI(tk.Tk):
         # Clear and update progress
         self.calibration_progress_text.delete(1.0, tk.END)
         self.log_calibration("Calibration started. Position specimen at 0° and set near focus position.")
-        
-        # Move to 0 degrees
-        self.move_to_angle(0)
+
+        # Move to 0 degrees without freezing UI
+        self.move_to_angle_async(0)
         
     def capture_calibration_position(self):
         """Capture the current linear position for calibration.
@@ -921,7 +975,7 @@ class ScannerGUI(tk.Tk):
             self.current_focus_var.set("Near")
             
             self.log_calibration(f"Moving to {next_angle}°. Set near focus position.")
-            self.move_to_angle(next_angle)
+            self.move_to_angle_async(next_angle)
         else:
             messagebox.showwarning("Calibration", "Please capture both near and far positions for current angle.")
     
@@ -953,6 +1007,36 @@ class ScannerGUI(tk.Tk):
             if isinstance(widget, ttk.Label) and str(widget.cget("textvariable")) == str(self.calibration_status_var):
                 widget.config(foreground="green")
                 break
+
+    def reset_calibration(self):
+        """Reset calibration workflow to initial state and move to 0°."""
+        # Clear data and state
+        self.calibration_data = {}
+        self.is_calibrated = False
+        self.current_calibration_angle = 0
+        self.current_calibration_focus = "near"
+        self.current_angle_var.set(f"{CALIBRATION_ANGLES[0]}°")
+        self.current_focus_var.set("Near")
+        self.calibration_status_var.set("Not Calibrated")
+
+        # Update status label color back to red
+        for widget in self.calibration_status_frame.winfo_children():
+            if isinstance(widget, ttk.Label) and str(widget.cget("textvariable")) == str(self.calibration_status_var):
+                widget.config(foreground="red")
+                break
+
+        # Enable/disable buttons appropriate for starting over
+        self.btn_start_calibration.config(state="normal")
+        self.btn_capture_position.config(state="disabled")
+        self.btn_next_step.config(state="disabled")
+        self.btn_save_calibration.config(state="disabled")
+
+        # Clear progress log and prompt user
+        self.calibration_progress_text.delete(1.0, tk.END)
+        self.log_calibration("Calibration reset. Click 'Start Calibration' to begin again at 0°.")
+
+        # Move to 0° asynchronously so the UI stays responsive
+        self.move_to_angle_async(0)
     
     def save_calibration(self):
         """Save calibration data to file.
@@ -1005,8 +1089,11 @@ class ScannerGUI(tk.Tk):
         if filename:
             try:
                 with open(filename, 'r') as f:
-                    self.calibration_data = json.load(f)
-                
+                    loaded = json.load(f)
+
+                # Normalize keys to integers and values to floats
+                self.calibration_data = self._normalize_calibration_data(loaded)
+
                 # Validate calibration data
                 if self.validate_calibration_data():
                     self.is_calibrated = True
@@ -1035,12 +1122,46 @@ class ScannerGUI(tk.Tk):
         Returns:
             bool: True if calibration data is complete and valid
         """
-        for angle in CALIBRATION_ANGLES:
-            if angle not in self.calibration_data:
-                return False
-            if "near" not in self.calibration_data[angle] or "far" not in self.calibration_data[angle]:
-                return False
-        return True
+        try:
+            for angle in CALIBRATION_ANGLES:
+                if angle not in self.calibration_data:
+                    return False
+                entry = self.calibration_data[angle]
+                if not isinstance(entry, dict):
+                    return False
+                if "near" not in entry or "far" not in entry:
+                    return False
+                # Ensure values are numbers
+                float(entry["near"])
+                float(entry["far"])
+            return True
+        except Exception:
+            return False
+
+    def _normalize_calibration_data(self, data):
+        """Normalize loaded calibration data to use integer angle keys and float values.
+
+        Accepts dicts with string keys like "0", "90" and ensures the resulting
+        structure is {0: {"near": float, "far": float}, ...}.
+        """
+        normalized = {}
+        if not isinstance(data, dict):
+            return normalized
+        for k, v in data.items():
+            try:
+                angle = int(k)
+            except Exception:
+                # Skip keys that are not integer-like
+                continue
+            if not isinstance(v, dict):
+                continue
+            try:
+                near = float(v.get("near"))
+                far = float(v.get("far"))
+            except Exception:
+                continue
+            normalized[angle] = {"near": near, "far": far}
+        return normalized
     
     def log_calibration(self, message):
         """Add message to calibration log"""
@@ -1066,17 +1187,26 @@ class ScannerGUI(tk.Tk):
         current_angle = self.motor1_position_deg
         rotation_needed = target_angle - current_angle
         
-        if rotation_needed != 0:
+        if abs(rotation_needed) > 0.01:
             direction = "CW" if rotation_needed > 0 else "CCW"
             amount = abs(rotation_needed)
             
             command = f"ROTATE 1 {amount} {direction}"
-            if self.send_motor_command(command):
+            if self.send_motor_command(command, wait_for_done=True):
                 self.motor1_position_deg = target_angle
-                self.motor1_pos_var.set(f"{target_angle:.1f}°")
-                self.status_var.set(f"Moved to {target_angle}°")
+                self.after(0, self.motor1_pos_var.set, f"{target_angle:.1f}°")
+                self.after(0, self.status_var.set, f"Moved to {target_angle}°")
                 return True
-        return False
+            else:
+                self.after(0, self.status_var.set, f"Failed to move to {target_angle}°")
+                return False
+        return True
+
+    def move_to_angle_async(self, target_angle):
+        """Non-blocking move for rotation motor (used in calibration UI)."""
+        def _worker():
+            self.move_to_angle(target_angle)
+        threading.Thread(target=_worker, daemon=True).start()
     
     def interpolate_focus_position(self, angle, stack_position):
         """Interpolate focus position for given angle and stack position.
@@ -1194,31 +1324,31 @@ class ScannerGUI(tk.Tk):
     def start_full_capture(self):
         """Start the full automated capture sequence.
         
-        Launches a complete 360° multi-stack photogrammetry capture session.
-        Creates organized directory structure, saves metadata, and captures
-        images at calculated positions using calibration data.
+        Launches a complete 360° capture session. Interprets values as:
+        - Perspectives (angles): number of angles around the 360° sweep
+        - Focus slices per angle: number of focus positions captured at each angle
         
         Workflow:
             1. Validate calibration and settings
             2. Create output directory structure
             3. Save capture metadata and calibration data
-            4. For each stack level:
-                - Calculate focus position via interpolation
-                - For each shot angle:
-                    - Move motors to position
+            4. For each perspective (angle):
+                - Move turntable to angle
+                - For each focus slice:
+                    - Interpolate and move focus
                     - Wait for settling
-                    - Capture image with structured filename
+                    - Capture image
             5. Update progress and log results
             
         Directory Structure:
             specimen_name/
                 session_YYYYMMDD_HHMMSS/
                     metadata.json
-                    stack_00/
-                        stack_00_shot_000_angle_000.00.jpg
-                        stack_00_shot_001_angle_005.00.jpg
+                    stack_00/   # perspective 0 (angle 0 * angle_step)
+                        stack_00_shot_000_angle_000.00.jpg   # focus slice 0
+                        stack_00_shot_001_angle_000.00.jpg   # focus slice 1
                         ...
-                    stack_01/
+                    stack_01/   # perspective 1 (next angle)
                     ...
         
         Raises:
@@ -1241,8 +1371,9 @@ class ScannerGUI(tk.Tk):
         total_images = self.stacks_count.get() * self.shots_per_stack.get()
         message = f"Start capture sequence?\n\n"
         message += f"Specimen: {self.specimen_name.get()}\n"
-        message += f"Stacks: {self.stacks_count.get()}\n"
-        message += f"Shots per stack: {self.shots_per_stack.get()}\n"
+        message += f"Perspectives (angles): {self.stacks_count.get()}\n"
+        message += f"Focus slices per angle: {self.shots_per_stack.get()}\n"
+        message += f"Angle step: {360.0 / max(1, self.stacks_count.get()):.2f}°\n"
         message += f"Total images: {total_images}\n"
         message += f"Estimated time: {total_images * (self.settle_delay.get() + 2):.0f} seconds"
         
@@ -1293,8 +1424,13 @@ class ScannerGUI(tk.Tk):
             metadata = {
                 "specimen_name": self.specimen_name.get(),
                 "timestamp": timestamp,
+                # Historical keys (legacy naming)
                 "stacks": self.stacks_count.get(),
                 "shots_per_stack": self.shots_per_stack.get(),
+                # Clarified semantics
+                "perspectives": self.stacks_count.get(),
+                "focus_slices_per_perspective": self.shots_per_stack.get(),
+                "angle_step_degrees": 360.0 / max(1, self.stacks_count.get()),
                 "settle_delay": self.settle_delay.get(),
                 "image_format": self.image_format.get(),
                 "calibration_data": self.calibration_data
@@ -1317,53 +1453,60 @@ class ScannerGUI(tk.Tk):
             
             self.after(0, lambda: self.log_capture(f"Starting capture sequence: {total_images} images"))
             
-            # Calculate angle step
-            angle_step = 360.0 / self.shots_per_stack.get()
-            
-            # For each stack
-            for stack in range(self.stacks_count.get()):
+            # Pause preview updates during capture to reduce contention
+            self.preview_update_active = False
+
+            # Strict waterfall order
+            # Interpret 'stacks_count' as number of perspectives (angles) in full 360°
+            # and 'shots_per_stack' as number of focus slices per angle.
+            angle_step = 360.0 / max(1, self.stacks_count.get())
+
+            # Move to starting positions
+            if not self.move_to_angle(0.0):
+                raise RuntimeError("Failed to home turntable to 0°")
+
+            # Perspective-major loop: for each angle, capture all focus slices
+            for perspective in range(self.stacks_count.get()):
                 if not self.capture_running:
                     break
-                
-                stack_dir = os.path.join(session_dir, f"stack_{stack:02d}")
-                os.makedirs(stack_dir, exist_ok=True)
-                
-                # Calculate focus position for this stack
-                stack_position = stack / (self.stacks_count.get() - 1) if self.stacks_count.get() > 1 else 0.0
-                
-                self.after(0, lambda s=stack: self.log_capture(f"Starting stack {s + 1}/{self.stacks_count.get()}"))
-                
-                # For each shot in the stack
-                for shot in range(self.shots_per_stack.get()):
+
+                angle = perspective * angle_step
+                # Turntable to angle
+                if not self.move_to_angle(angle):
+                    self.after(0, self.log_capture, f"Aborting: Failed to move to angle {angle}")
+                    break
+
+                # For each focus slice at this angle
+                for slice_idx in range(self.shots_per_stack.get()):
                     if not self.capture_running:
                         break
-                    
-                    # Calculate angle and focus position
-                    angle = shot * angle_step
+
+                    stack_dir = os.path.join(session_dir, f"stack_{perspective:02d}")
+                    os.makedirs(stack_dir, exist_ok=True)
+
+                    # Map slice index to 0.0..1.0 focus position
+                    stack_position = (slice_idx / (self.shots_per_stack.get() - 1)) if self.shots_per_stack.get() > 1 else 0.0
                     focus_position = self.interpolate_focus_position(angle, stack_position)
-                    
-                    # Move to position
-                    self.after(0, lambda a=angle: self.move_to_angle(a))
-                    time.sleep(0.5)  # Let rotation settle
-                    
-                    self.after(0, lambda pos=focus_position: self.move_to_focus_position(pos))
-                    time.sleep(self.settle_delay.get())  # Settle delay
-                    
-                    # Capture image
-                    filename = f"stack_{stack:02d}_shot_{shot:03d}_angle_{angle:06.2f}.{self.image_format.get().lower()}"
+
+                    # Move focus
+                    if not self.move_to_focus_position(focus_position):
+                        self.after(0, self.log_capture, f"Aborting: Failed to move focus to {focus_position:.2f}mm")
+                        break
+
+                    # Settle
+                    time.sleep(self.settle_delay.get())
+
+                    # Capture
+                    filename = f"stack_{perspective:02d}_shot_{slice_idx:03d}_angle_{angle:06.2f}.{self.image_format.get().lower()}"
                     filepath = os.path.join(stack_dir, filename)
-                    
                     self.capture_image(filepath)
-                    
+
                     image_count += 1
                     progress = (image_count / total_images) * 100
-                    
-                    self.after(0, lambda p=progress: self.capture_progress.set(p))
-                    self.after(0, lambda i=image_count, t=total_images: 
-                              self.progress_label_var.set(f"Captured {i}/{t} images"))
-                    
-                    if image_count % 10 == 0:  # Log every 10 images
-                        self.after(0, lambda i=image_count: self.log_capture(f"Captured {i} images"))
+                    self.after(0, self.capture_progress.set, progress)
+                    self.after(0, self.progress_label_var.set, f"Captured {image_count}/{total_images} images")
+                    if image_count % 10 == 0:
+                        self.after(0, self.log_capture, f"Captured {image_count} images")
             
             # Complete
             if self.capture_running:
@@ -1376,6 +1519,9 @@ class ScannerGUI(tk.Tk):
         
         finally:
             self.capture_running = False
+            # Resume preview updates after capture
+            if self.preview_on:
+                self.preview_update_active = True
             self.after(0, lambda: self.btn_start_capture.config(state="normal"))
             self.after(0, lambda: self.btn_stop_capture.config(state="disabled"))
     
@@ -1389,11 +1535,14 @@ class ScannerGUI(tk.Tk):
             amount = abs(move_distance)
             
             command = f"MOVE 2 {amount} {direction}"
-            if self.send_motor_command(command):
+            if self.send_motor_command(command, wait_for_done=True):
                 self.motor2_position_mm = target_position
-                self.motor2_pos_var.set(f"{target_position:.2f}mm")
+                self.after(0, self.motor2_pos_var.set, f"{target_position:.2f}mm")
                 return True
-        return False
+            else:
+                self.after(0, self.status_var.set, "Failed to move focus position")
+                return False
+        return True
     
     def capture_image(self, filepath):
         """Capture an image to the specified filepath"""
@@ -1402,10 +1551,12 @@ class ScannerGUI(tk.Tk):
         
         # Capture high-resolution image
         if self.image_format.get().upper() == "JPG":
-            self.camera.capture_file(filepath)
+            with self.camera_lock:
+                self.camera.capture_file(filepath)
         else:
             # For PNG/TIFF, capture array and save with PIL
-            array = self.camera.capture_array("main")
+            with self.camera_lock:
+                array = self.camera.capture_array("main")
             image = Image.fromarray(array)
             image.save(filepath)
     
@@ -1438,7 +1589,8 @@ class ScannerGUI(tk.Tk):
                 controls["Brightness"] = self.brightness.get()
             
             if controls:
-                self.camera.set_controls(controls)
+                with self.camera_lock:
+                    self.camera.set_controls(controls)
                 self.status_var.set("Camera settings applied")
             
             # Update camera info display
@@ -1551,7 +1703,7 @@ class ScannerGUI(tk.Tk):
             self.status_var.set("Invalid step size for Motor 2")
     
 if __name__ == "__main__":
-    print("Starting 3D Scanner Control Panel v4.0...")
+    print("Starting 3D Scanner Control Panel v1.0...")
     
     # Test basic imports first
     try:

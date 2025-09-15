@@ -2,7 +2,7 @@
 
 A comprehensive control application for a dual-motor 3D photogrammetry scanner using Raspberry Pi and Arduino.
 
-![Scanner Control Panel](https://img.shields.io/badge/version-4.0-blue) ![Python](https://img.shields.io/badge/python-3.8%2B-green) ![License](https://img.shields.io/badge/license-MIT-yellow)
+![Scanner Control Panel](https://img.shields.io/badge/version-1.0-blue) ![Python](https://img.shields.io/badge/python-3.8%2B-green) ![License](https://img.shields.io/badge/license-MIT-yellow)
 
 ## 🚀 Quick Start
 
@@ -46,11 +46,12 @@ A comprehensive control application for a dual-motor 3D photogrammetry scanner u
 - **Persistent Storage**: Save/load calibration data
 
 ### 📸 Automated Capture
-- **Multi-Stack Workflow**: Capture multiple focus stacks
-- **360° Coverage**: Configurable shots per rotation
-- **Intelligent Focus**: Automatic focus based on calibration
+- **Perspectives (angles)**: Number of camera perspectives around 360°
+- **Focus slices per angle**: Number of focus steps at each perspective
+- **Angle step**: Computed as `360 / perspectives` (shown in UI)
+- **Intelligent Focus**: Automatic interpolation based on calibration
 - **Flexible Formats**: Support for JPG, PNG, and TIFF
-- **Organized Output**: Hierarchical folder structure
+- **Organized Output**: One folder per perspective; files named with angle and slice index
 
 ### ⚙️ Camera Settings
 - **Manual Controls**: Shutter speed, brightness, exposure
@@ -100,9 +101,9 @@ scanner-companion/
 4. **Save Settings**: Store for future capture sessions
 
 ### Capture Process
-- **Stack Distribution**: Even focus distribution between limits
-- **360° Rotation**: Automatic positioning with specified increments
-- **Focus Interpolation**: Smart interpolation between calibrated points
+- **Perspectives**: Evenly spaced by the displayed angle step (e.g., 5°)
+- **Focus Slices**: Evenly distributed between near/far calibration per angle
+- **Focus Interpolation**: Smart interpolation between calibrated cardinal points
 - **Progress Tracking**: Real-time progress and detailed logging
 
 ## 📋 File Organization
@@ -114,11 +115,11 @@ output_directory/
 └── specimen_name/
     └── session_YYYYMMDD_HHMMSS/
         ├── metadata.json
-        ├── stack_00/
-        │   ├── stack_00_shot_000_angle_000.00.jpg
-        │   ├── stack_00_shot_001_angle_005.00.jpg
-        │   └── ...
-        ├── stack_01/
+   ├── stack_00/   # perspective 0 (angle 0 * angle_step)
+   │   ├── stack_00_shot_000_angle_000.00.jpg  # focus slice 0
+   │   ├── stack_00_shot_001_angle_000.00.jpg  # focus slice 1
+   │   └── ...
+   ├── stack_01/   # perspective 1 (next angle)
         └── ...
 ```
 
