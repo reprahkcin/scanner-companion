@@ -61,6 +61,12 @@ CAMERA_RESOLUTION = (320, 240)       # preview size (smaller for safety)
 JOG_STEP_DELAY    = 0.05             # seconds between steps during jog
 PREVIEW_COLOR_SWAP = True            # swap BGR->RGB for preview if colors look wrong
 
+# Common resolution presets (WxH) for preview/capture
+RESOLUTION_PRESETS = [
+    "320x240", "640x480", "1280x720", "1920x1080", "2028x1520", "2592x1944",
+    "3280x2464", "3840x2160", "4056x3040"
+]
+
 # Capture defaults
 DEFAULT_OUTPUT_DIR = os.path.expanduser("~/Desktop/scanner_captures")
 DEFAULT_STACKS = 5
@@ -151,6 +157,20 @@ class ScannerGUI(tk.Tk):
         # === Camera settings ===
         self.shutter_speed = tk.IntVar(value=0)  # 0 = auto
         self.brightness = tk.DoubleVar(value=0.0)
+        # Resolution settings
+        self.preview_resolution = tk.StringVar(value="640x480")
+        self.capture_resolution = tk.StringVar(value="4056x3040")
+        # Exposure/Color settings
+        self.ae_enable = tk.BooleanVar(value=True)
+        self.iso_value = tk.StringVar(value="Auto")
+        self.analogue_gain = tk.DoubleVar(value=1.0)
+        self.ev_compensation = tk.DoubleVar(value=0.0)
+        self.awb_enable = tk.BooleanVar(value=True)
+        self.wb_red_gain = tk.DoubleVar(value=1.8)
+        self.wb_blue_gain = tk.DoubleVar(value=1.5)
+        self.contrast = tk.DoubleVar(value=1.0)
+        self.saturation = tk.DoubleVar(value=1.0)
+        self.sharpness = tk.DoubleVar(value=1.0)
         
         # === Progress tracking ===
         self.capture_progress = tk.DoubleVar(value=0.0)
@@ -562,48 +582,185 @@ class ScannerGUI(tk.Tk):
     def _build_camera_settings_tab(self):
         # Camera controls
         self.camera_controls_frame = ttk.LabelFrame(self.camera_settings_tab, text="Camera Controls", padding=10)
-        
+
+        # Row 0: Shutter speed
         ttk.Label(self.camera_controls_frame, text="Shutter Speed (μs):").grid(row=0, column=0, sticky="w")
-        self.shutter_spinbox = ttk.Spinbox(self.camera_controls_frame, from_=0, to=1000000, 
-                                          textvariable=self.shutter_speed, width=15)
-        self.shutter_spinbox.grid(row=0, column=1, sticky="w", padx=(5,0))
-        ttk.Label(self.camera_controls_frame, text="(0 = auto)").grid(row=0, column=2, sticky="w", padx=(5,0))
-        
-        ttk.Label(self.camera_controls_frame, text="Brightness:").grid(row=1, column=0, sticky="w")
-        self.brightness_scale = ttk.Scale(self.camera_controls_frame, from_=-1.0, to=1.0, 
-                                         variable=self.brightness, orient="horizontal", length=200)
-        self.brightness_scale.grid(row=1, column=1, sticky="w", padx=(5,0))
-        
+        self.shutter_spinbox = ttk.Spinbox(
+            self.camera_controls_frame,
+            from_=0,
+            to=1000000,
+            textvariable=self.shutter_speed,
+            width=15
+        )
+        self.shutter_spinbox.grid(row=0, column=1, sticky="w", padx=(5, 0))
+        ttk.Label(self.camera_controls_frame, text="(0 = auto)").grid(row=0, column=2, sticky="w", padx=(5, 0))
+
+        # Row 1: AE toggle and ISO
+        ttk.Checkbutton(self.camera_controls_frame, text="Auto Exposure", variable=self.ae_enable).grid(row=1, column=0, sticky="w")
+        ttk.Label(self.camera_controls_frame, text="ISO:").grid(row=1, column=1, sticky="w")
+        self.iso_combo = ttk.Combobox(
+            self.camera_controls_frame,
+            textvariable=self.iso_value,
+            state="readonly",
+            values=["Auto", "100", "200", "400", "800", "1600"],
+            width=8,
+        )
+        self.iso_combo.grid(row=1, column=2, sticky="w", padx=(5, 0))
+
+        # Row 2: Analogue gain and EV comp
+        ttk.Label(self.camera_controls_frame, text="Analogue Gain:").grid(row=2, column=0, sticky="w")
+        self.gain_scale = ttk.Scale(
+            self.camera_controls_frame,
+            from_=1.0,
+            to=16.0,
+            variable=self.analogue_gain,
+            orient="horizontal",
+            length=200,
+        )
+        self.gain_scale.grid(row=2, column=1, sticky="w", padx=(5, 0))
+
+        ttk.Label(self.camera_controls_frame, text="EV Comp:").grid(row=2, column=2, sticky="w")
+        self.ev_scale = ttk.Scale(
+            self.camera_controls_frame,
+            from_=-2.0,
+            to=2.0,
+            variable=self.ev_compensation,
+            orient="horizontal",
+            length=120,
+        )
+        self.ev_scale.grid(row=2, column=3, sticky="w", padx=(5, 0))
+
+        # Row 3: Brightness + live label
+        ttk.Label(self.camera_controls_frame, text="Brightness:").grid(row=3, column=0, sticky="w")
+        self.brightness_scale = ttk.Scale(
+            self.camera_controls_frame,
+            from_=-1.0,
+            to=1.0,
+            variable=self.brightness,
+            orient="horizontal",
+            length=200,
+        )
+        self.brightness_scale.grid(row=3, column=1, sticky="w", padx=(5, 0))
+
         self.brightness_value_var = tk.StringVar()
-        ttk.Label(self.camera_controls_frame, textvariable=self.brightness_value_var).grid(row=1, column=2, sticky="w", padx=(5,0))
-        
-        # Update brightness display
+        ttk.Label(self.camera_controls_frame, textvariable=self.brightness_value_var).grid(row=3, column=2, sticky="w", padx=(5, 0))
+
+        # Row 4: AWB and WB gains
+        ttk.Checkbutton(self.camera_controls_frame, text="Auto White Balance", variable=self.awb_enable).grid(row=4, column=0, sticky="w")
+        ttk.Label(self.camera_controls_frame, text="WB Red Gain:").grid(row=4, column=1, sticky="w")
+        self.wb_r_scale = ttk.Scale(
+            self.camera_controls_frame,
+            from_=0.5,
+            to=3.5,
+            variable=self.wb_red_gain,
+            orient="horizontal",
+            length=180,
+        )
+        self.wb_r_scale.grid(row=4, column=2, sticky="w", padx=(5, 0))
+        ttk.Label(self.camera_controls_frame, text="WB Blue Gain:").grid(row=4, column=3, sticky="w")
+        self.wb_b_scale = ttk.Scale(
+            self.camera_controls_frame,
+            from_=0.5,
+            to=3.5,
+            variable=self.wb_blue_gain,
+            orient="horizontal",
+            length=180,
+        )
+        self.wb_b_scale.grid(row=4, column=4, sticky="w", padx=(5, 0))
+
+        # Row 5: Contrast and Saturation
+        ttk.Label(self.camera_controls_frame, text="Contrast:").grid(row=5, column=0, sticky="w")
+        self.contrast_scale = ttk.Scale(
+            self.camera_controls_frame,
+            from_=0.0,
+            to=2.0,
+            variable=self.contrast,
+            orient="horizontal",
+            length=200,
+        )
+        self.contrast_scale.grid(row=5, column=1, sticky="w", padx=(5, 0))
+
+        ttk.Label(self.camera_controls_frame, text="Saturation:").grid(row=5, column=2, sticky="w")
+        self.saturation_scale = ttk.Scale(
+            self.camera_controls_frame,
+            from_=0.0,
+            to=2.0,
+            variable=self.saturation,
+            orient="horizontal",
+            length=200,
+        )
+        self.saturation_scale.grid(row=5, column=3, sticky="w", padx=(5, 0))
+
+        # Row 6: Sharpness
+        ttk.Label(self.camera_controls_frame, text="Sharpness:").grid(row=6, column=0, sticky="w")
+        self.sharpness_scale = ttk.Scale(
+            self.camera_controls_frame,
+            from_=0.0,
+            to=2.0,
+            variable=self.sharpness,
+            orient="horizontal",
+            length=200,
+        )
+        self.sharpness_scale.grid(row=6, column=1, sticky="w", padx=(5, 0))
+
+        # Row 7: Apply button
+        self.btn_apply_settings = ttk.Button(
+            self.camera_controls_frame,
+            text="Apply Settings",
+            command=self.apply_camera_settings,
+        )
+        self.btn_apply_settings.grid(row=7, column=0, columnspan=3, pady=(10, 0))
+
+        # Keep a live readout of brightness value
         def update_brightness_display(*args):
             self.brightness_value_var.set(f"{self.brightness.get():.2f}")
-        self.brightness.trace('w', update_brightness_display)
+
+        self.brightness.trace("w", update_brightness_display)
         update_brightness_display()
-        
-        self.btn_apply_settings = ttk.Button(self.camera_controls_frame, text="Apply Settings", 
-                                            command=self.apply_camera_settings)
-        self.btn_apply_settings.grid(row=2, column=0, columnspan=3, pady=(10,0))
-        
+
+        # Resolution controls
+        self.resolution_frame = ttk.LabelFrame(self.camera_settings_tab, text="Resolution", padding=10)
+        ttk.Label(self.resolution_frame, text="Preview Resolution:").grid(row=0, column=0, sticky="w")
+        self.preview_res_combo = ttk.Combobox(
+            self.resolution_frame,
+            textvariable=self.preview_resolution,
+            values=RESOLUTION_PRESETS,
+            state="readonly",
+            width=12,
+        )
+        self.preview_res_combo.grid(row=0, column=1, sticky="w", padx=(5, 0))
+        ttk.Label(self.resolution_frame, text="Capture Resolution:").grid(row=1, column=0, sticky="w")
+        self.capture_res_combo = ttk.Combobox(
+            self.resolution_frame,
+            textvariable=self.capture_resolution,
+            values=RESOLUTION_PRESETS,
+            state="readonly",
+            width=12,
+        )
+        self.capture_res_combo.grid(row=1, column=1, sticky="w", padx=(5, 0))
+
+        # Hint
+        ttk.Label(
+            self.resolution_frame,
+            text="Preview affects live view FPS; capture uses full still resolution.",
+            foreground="#666",
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
+
         # Camera info
         self.camera_info_frame = ttk.LabelFrame(self.camera_settings_tab, text="Camera Information", padding=10)
-        
         self.camera_info_text = tk.Text(self.camera_info_frame, height=10, width=60, state="disabled")
         self.camera_info_text.grid(row=0, column=0, sticky="nsew")
-        
-        info_scrollbar = ttk.Scrollbar(self.camera_info_frame, orient="vertical", 
-                                      command=self.camera_info_text.yview)
+        info_scrollbar = ttk.Scrollbar(self.camera_info_frame, orient="vertical", command=self.camera_info_text.yview)
         info_scrollbar.grid(row=0, column=1, sticky="ns")
         self.camera_info_text.config(yscrollcommand=info_scrollbar.set)
-        
+
         # Layout camera settings tab
-        self.camera_settings_tab.rowconfigure(1, weight=1)
+        self.camera_settings_tab.rowconfigure(2, weight=1)
         self.camera_settings_tab.columnconfigure(0, weight=1)
-        
+
         self.camera_controls_frame.grid(row=0, column=0, padx=10, pady=5, sticky="ew")
-        self.camera_info_frame.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
+        self.resolution_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
+        self.camera_info_frame.grid(row=2, column=0, padx=10, pady=5, sticky="nsew")
 
     def _layout_gui(self):
         self.rowconfigure(0, weight=1)
@@ -634,10 +791,15 @@ class ScannerGUI(tk.Tk):
         try:
             if self.camera is None:
                 self.camera = Picamera2()
-                config = self.camera.create_preview_configuration(
-                    main={"size": CAMERA_RESOLUTION, "format": "RGB888"}
-                )
-                self.camera.configure(config)
+            # Build preview configuration from selected resolution
+            try:
+                w, h = map(int, self.preview_resolution.get().lower().split("x"))
+            except Exception:
+                w, h = CAMERA_RESOLUTION
+            self.preview_config = self.camera.create_preview_configuration(
+                main={"size": (w, h), "format": "RGB888"}
+            )
+            self.camera.configure(self.preview_config)
             self.camera.start()
             self.preview_on = True
             self.preview_update_active = True
@@ -1549,16 +1711,38 @@ class ScannerGUI(tk.Tk):
         if self.camera is None or not self.camera.started:
             raise Exception("Camera not started")
         
+        # Prepare still configuration with target capture resolution
+        try:
+            w, h = map(int, self.capture_resolution.get().lower().split("x"))
+        except Exception:
+            w, h = (2028, 1520)
+
+        still_config = self.camera.create_still_configuration(main={"size": (w, h)})
+
         # Capture high-resolution image
-        if self.image_format.get().upper() == "JPG":
-            with self.camera_lock:
-                self.camera.capture_file(filepath)
-        else:
-            # For PNG/TIFF, capture array and save with PIL
-            with self.camera_lock:
-                array = self.camera.capture_array("main")
-            image = Image.fromarray(array)
-            image.save(filepath)
+        fmt = self.image_format.get().upper()
+        with self.camera_lock:
+            if fmt == "JPG":
+                try:
+                    self.camera.switch_mode_and_capture_file(still_config, filepath)
+                finally:
+                    # Return to preview mode if active
+                    if self.preview_on:
+                        try:
+                            self.camera.switch_mode(self.preview_config)
+                        except Exception:
+                            pass
+            else:
+                try:
+                    array = self.camera.switch_mode_and_capture_array(still_config, "main")
+                finally:
+                    if self.preview_on:
+                        try:
+                            self.camera.switch_mode(self.preview_config)
+                        except Exception:
+                            pass
+                image = Image.fromarray(array)
+                image.save(filepath)
     
     def log_capture(self, message):
         """Add message to capture log"""
@@ -1581,17 +1765,57 @@ class ScannerGUI(tk.Tk):
             # Shutter speed
             if self.shutter_speed.get() > 0:
                 controls["ExposureTime"] = self.shutter_speed.get()
+            
+            # AE and ISO / Analogue Gain
+            if self.ae_enable.get():
+                controls["AeEnable"] = True
+                # EV compensation only applies when AE is enabled
+                if abs(self.ev_compensation.get()) > 0.01:
+                    controls["ExposureValue"] = float(self.ev_compensation.get())
             else:
-                controls["AeEnable"] = True  # Auto exposure
+                controls["AeEnable"] = False
+                # Manual ISO -> approximate analogue gain (ISO ~ 100 * gain)
+                iso = self.iso_value.get()
+                if iso and iso != "Auto":
+                    try:
+                        controls["AnalogueGain"] = float(int(iso) / 100.0)
+                    except Exception:
+                        pass
+                elif self.analogue_gain.get() >= 1.0:
+                    controls["AnalogueGain"] = float(self.analogue_gain.get())
             
             # Brightness
             if abs(self.brightness.get()) > 0.01:
                 controls["Brightness"] = self.brightness.get()
+
+            # AWB or manual WB
+            if self.awb_enable.get():
+                controls["AwbEnable"] = True
+            else:
+                controls["AwbEnable"] = False
+                controls["ColourGains"] = (float(self.wb_red_gain.get()), float(self.wb_blue_gain.get()))
+
+            # Image processing
+            if abs(self.contrast.get() - 1.0) > 0.01:
+                controls["Contrast"] = float(self.contrast.get())
+            if abs(self.saturation.get() - 1.0) > 0.01:
+                controls["Saturation"] = float(self.saturation.get())
+            if abs(self.sharpness.get() - 1.0) > 0.01:
+                controls["Sharpness"] = float(self.sharpness.get())
             
             if controls:
                 with self.camera_lock:
                     self.camera.set_controls(controls)
                 self.status_var.set("Camera settings applied")
+
+            # If preview is running and resolution changed, restart preview with new config
+            if self.preview_on:
+                try:
+                    self.stop_preview()
+                    time.sleep(0.1)
+                    self.start_preview()
+                except Exception:
+                    pass
             
             # Update camera info display
             self.update_camera_info()

@@ -26,3 +26,23 @@ All notable changes to this project will be documented in this file.
 - Metadata includes both legacy keys (`stacks`, `shots_per_stack`) and clarified fields (`perspectives`, `focus_slices_per_perspective`, `angle_step_degrees`).
 - Folder naming remains `stack_XX` to preserve compatibility, representing perspective folders.
 
+
+## [1.0.1] - 2025-09-14
+
+### Added
+- Camera Settings tab extended with controls for:
+  - Auto Exposure toggle, ISO presets, Analogue Gain, EV compensation
+  - Auto White Balance toggle, manual White Balance Red/Blue gains
+  - Brightness, Contrast, Saturation, Sharpness
+- Resolution presets for Preview and Capture with automatic preview reconfigure.
+
+### Changed
+- Capture now uses still-mode configuration per selected capture resolution, then returns to preview mode.
+- Camera info panel shows camera properties and current metadata when available.
+
+### Fixed
+- Structural/indentation issues in the Camera Settings UI code resolved; UI renders reliably.
+
+### Maintenance
+- Removed an empty/failing GitHub Actions workflow (`.github/workflows/code-quality.yml`); retained a minimal basic syntax check on push/PR.
+
