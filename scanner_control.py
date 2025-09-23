@@ -177,12 +177,31 @@ class ScannerGUI(tk.Tk):
         self.capture_running = False
         self.capture_thread = None
 
+        # === Rotation mapping (app-level, no firmware changes) ===
+        # rotation_scale: how many firmware degrees to command for 1° of desired movement
+        # rotation_invert: swap CW/CCW if mechanical direction is flipped
+        self.rotation_scale = tk.DoubleVar(value=1.0)
+        self.rotation_invert = tk.BooleanVar(value=False)
+
+        # Load persisted settings if available
+        self._load_app_settings()
+
         # Build the GUI
         self._build_gui()
         self._layout_gui()
 
         # Create output directory if it doesn't exist
         os.makedirs(DEFAULT_OUTPUT_DIR, exist_ok=True)
+
+        # Persist settings when changed
+        try:
+            # Trace changes to save settings automatically
+            self.rotation_scale.trace_add('write', lambda *_: self._save_app_settings())
+            self.rotation_invert.trace_add('write', lambda *_: self._save_app_settings())
+        except AttributeError:
+            # Older Tk fallback
+            self.rotation_scale.trace('w', lambda *_: self._save_app_settings())
+            self.rotation_invert.trace('w', lambda *_: self._save_app_settings())
 
     def _build_gui(self):
         # Create main notebook for tabs
@@ -558,6 +577,13 @@ class ScannerGUI(tk.Tk):
         self.progress_label_var = tk.StringVar(value="Ready")
         ttk.Label(self.progress_frame, textvariable=self.progress_label_var).grid(row=1, column=0, sticky="w")
         
+        # Rotation mapping (app-level)
+        self.rotation_map_frame = ttk.LabelFrame(self.capture_tab, text="Rotation Mapping (App)", padding=10)
+        ttk.Label(self.rotation_map_frame, text="Scale (FW° per actual°):").grid(row=0, column=0, sticky="w")
+        ttk.Entry(self.rotation_map_frame, textvariable=self.rotation_scale, width=10).grid(row=0, column=1, sticky="w", padx=(5,0))
+        ttk.Checkbutton(self.rotation_map_frame, text="Reverse CW/CCW", variable=self.rotation_invert).grid(row=0, column=2, sticky="w", padx=(10,0))
+        ttk.Label(self.rotation_map_frame, text="Tip: Command 90° and adjust scale until physical motion is 90°.", foreground="#666").grid(row=1, column=0, columnspan=3, sticky="w", pady=(6,0))
+
         # Capture log
         self.capture_log_frame = ttk.LabelFrame(self.capture_tab, text="Capture Log", padding=10)
         
@@ -570,14 +596,15 @@ class ScannerGUI(tk.Tk):
         self.capture_log_text.config(yscrollcommand=capture_scrollbar.set)
         
         # Layout capture tab
-        self.capture_tab.rowconfigure(4, weight=1)
+        self.capture_tab.rowconfigure(5, weight=1)
         self.capture_tab.columnconfigure(0, weight=1)
         
         self.specimen_frame.grid(row=0, column=0, padx=10, pady=5, sticky="ew")
         self.capture_settings_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
         self.capture_controls_frame.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
         self.progress_frame.grid(row=3, column=0, padx=10, pady=5, sticky="ew")
-        self.capture_log_frame.grid(row=4, column=0, padx=10, pady=5, sticky="nsew")
+        self.rotation_map_frame.grid(row=4, column=0, padx=10, pady=5, sticky="ew")
+        self.capture_log_frame.grid(row=5, column=0, padx=10, pady=5, sticky="nsew")
 
     def _build_camera_settings_tab(self):
         # Camera controls
@@ -940,7 +967,10 @@ class ScannerGUI(tk.Tk):
     def motor1_ccw(self):
         try:
             step = float(self.motor1_step_var.get())
-            command = f"ROTATE 1 {step} CCW"
+            scale = max(0.0001, float(self.rotation_scale.get()))
+            amount_fw = step * scale
+            dir_cmd = "CW" if self.rotation_invert.get() else "CCW"
+            command = f"ROTATE 1 {amount_fw} {dir_cmd}"
             
             if self.send_motor_command(command):
                 self.motor1_position_deg -= step
@@ -954,7 +984,10 @@ class ScannerGUI(tk.Tk):
     def motor1_cw(self):
         try:
             step = float(self.motor1_step_var.get())
-            command = f"ROTATE 1 {step} CW"
+            scale = max(0.0001, float(self.rotation_scale.get()))
+            amount_fw = step * scale
+            dir_cmd = "CCW" if self.rotation_invert.get() else "CW"
+            command = f"ROTATE 1 {amount_fw} {dir_cmd}"
             
             if self.send_motor_command(command):
                 self.motor1_position_deg += step
@@ -1010,6 +1043,11 @@ class ScannerGUI(tk.Tk):
             self.status_var.set("Failed to zero motor 2")
 
     def on_close(self):
+        # Save settings one last time
+        try:
+            self._save_app_settings()
+        except Exception:
+            pass
         # Stop any running capture
         if self.capture_running:
             self.capture_running = False
@@ -1032,6 +1070,44 @@ class ScannerGUI(tk.Tk):
                 pass
         
         self.destroy()
+
+    # ──────────────────────────────────────────────────────────────────
+    # App-level settings persistence
+    # ──────────────────────────────────────────────────────────────────
+    def _settings_path(self):
+        # Store next to output dir as a simple, discoverable location
+        base = self.output_dir.get() or DEFAULT_OUTPUT_DIR
+        try:
+            os.makedirs(base, exist_ok=True)
+        except Exception:
+            base = DEFAULT_OUTPUT_DIR
+            os.makedirs(base, exist_ok=True)
+        return os.path.join(base, "app_settings.json")
+
+    def _load_app_settings(self):
+        try:
+            path = os.path.join(DEFAULT_OUTPUT_DIR, "app_settings.json")
+            if os.path.exists(path):
+                with open(path, 'r') as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    if 'rotation_scale' in data:
+                        self.rotation_scale.set(float(data['rotation_scale']))
+                    if 'rotation_invert' in data:
+                        self.rotation_invert.set(bool(data['rotation_invert']))
+        except Exception:
+            pass
+
+    def _save_app_settings(self):
+        try:
+            data = {
+                'rotation_scale': float(self.rotation_scale.get()),
+                'rotation_invert': bool(self.rotation_invert.get()),
+            }
+            with open(self._settings_path(), 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
 
 # =====================================================================
 # CALIBRATION METHODS
@@ -1350,10 +1426,12 @@ class ScannerGUI(tk.Tk):
         rotation_needed = target_angle - current_angle
         
         if abs(rotation_needed) > 0.01:
-            direction = "CW" if rotation_needed > 0 else "CCW"
-            amount = abs(rotation_needed)
-            
-            command = f"ROTATE 1 {amount} {direction}"
+            desired_dir = "CW" if rotation_needed > 0 else "CCW"
+            direction = ("CCW" if desired_dir == "CW" else "CW") if self.rotation_invert.get() else desired_dir
+            scale = max(0.0001, float(self.rotation_scale.get()))
+            amount_fw = abs(rotation_needed) * scale
+
+            command = f"ROTATE 1 {amount_fw} {direction}"
             if self.send_motor_command(command, wait_for_done=True):
                 self.motor1_position_deg = target_angle
                 self.after(0, self.motor1_pos_var.set, f"{target_angle:.1f}°")
@@ -1870,7 +1948,10 @@ class ScannerGUI(tk.Tk):
         """Motor 1 CCW control for calibration tab"""
         try:
             step = float(self.cal_motor1_step_var.get())
-            command = f"ROTATE 1 {step} CCW"
+            scale = max(0.0001, float(self.rotation_scale.get()))
+            amount_fw = step * scale
+            dir_cmd = "CW" if self.rotation_invert.get() else "CCW"
+            command = f"ROTATE 1 {amount_fw} {dir_cmd}"
             
             if self.send_motor_command(command):
                 self.motor1_position_deg -= step
@@ -1885,7 +1966,10 @@ class ScannerGUI(tk.Tk):
         """Motor 1 CW control for calibration tab"""
         try:
             step = float(self.cal_motor1_step_var.get())
-            command = f"ROTATE 1 {step} CW"
+            scale = max(0.0001, float(self.rotation_scale.get()))
+            amount_fw = step * scale
+            dir_cmd = "CCW" if self.rotation_invert.get() else "CW"
+            command = f"ROTATE 1 {amount_fw} {dir_cmd}"
             
             if self.send_motor_command(command):
                 self.motor1_position_deg += step
