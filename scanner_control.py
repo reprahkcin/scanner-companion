@@ -50,6 +50,116 @@ except ImportError:
 PICAMERA2_AVAILABLE = PICAMERA2_OK and PIL_OK
 
 import serial
+import math
+from dataclasses import dataclass
+from xml.sax.saxutils import escape
+
+# ──────────────────────────────────────────────────────────────────────────────
+# XMP POSE CALCULATION
+# ──────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class RigPose:
+    """Camera pose for XMP export"""
+    pos_m: tuple[float, float, float]     # (x,y,z) position in meters
+    R_rowmajor: tuple[float, ...]         # 9 numbers, row-major 3x3 rotation matrix
+
+def ring_pose(distance_mm: float, rail_deg: float, theta_deg: float) -> RigPose:
+    """Calculate camera pose on a tilted ring around object at origin.
+    
+    Args:
+        distance_mm: Distance from lens entrance pupil to object center
+        rail_deg: Rail tilt angle (positive = camera pitched up from horizontal)
+        theta_deg: Angle around the object (0° = +X axis, 90° = +Y axis)
+        
+    Returns:
+        RigPose with camera position and look-at-origin rotation matrix
+    """
+    # Object center at origin. X right, Y forward, Z up in rig space.
+    r = distance_mm / 1000.0  # Convert to meters
+    th = math.radians(theta_deg)
+    a = math.radians(rail_deg)
+    
+    # Camera center in world coordinates on tilted ring
+    x = r * math.cos(th) * math.cos(a)
+    y = r * math.sin(th) * math.cos(a)  
+    z = r * math.sin(a)
+
+    # Build a "look-at origin" rotation matrix
+    C = (x, y, z)
+    tgt = (0.0, 0.0, 0.0)  # Looking at object center
+    upW = (0.0, 0.0, 1.0)  # World up vector
+
+    def vsub(a, b): return (a[0]-b[0], a[1]-b[1], a[2]-b[2])
+    def vdot(a, b): return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]
+    def vcross(a, b): return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
+    def vnorm(a):
+        m = math.sqrt(vdot(a, a))
+        return (a[0]/m, a[1]/m, a[2]/m) if m > 0 else (0, 0, 1)
+
+    # Camera axes: forward points from camera to target
+    f = vnorm(vsub(tgt, C))  # Forward (toward object)
+    rgt = vnorm(vcross(f, upW))  # Right
+    up = vcross(rgt, f)  # Up
+
+    # Build camera-to-world rotation matrix
+    Rc2w = ((rgt[0], rgt[1], rgt[2]),
+            (up[0], up[1], up[2]),
+            (-f[0], -f[1], -f[2]))  # Note: -f for right-handed coordinate system
+
+    # RealityCapture expects world-to-camera rotation (transpose)
+    Rw2c = ((Rc2w[0][0], Rc2w[1][0], Rc2w[2][0]),
+            (Rc2w[0][1], Rc2w[1][1], Rc2w[2][1]),
+            (Rc2w[0][2], Rc2w[1][2], Rc2w[2][2]))
+
+    # Serialize to 9 numbers in row-major order
+    R9 = (Rw2c[0][0], Rw2c[0][1], Rw2c[0][2],
+          Rw2c[1][0], Rw2c[1][1], Rw2c[1][2],
+          Rw2c[2][0], Rw2c[2][1], Rw2c[2][2])
+    
+    return RigPose((x, y, z), R9)
+
+def write_xmp_sidecar(img_path: str, pose: RigPose, 
+                      lens_to_object_mm: float, rail_to_horizon_deg: float,
+                      theta_deg: float, stack_index: int) -> None:
+    """Write XMP sidecar file with camera pose data.
+    
+    Args:
+        img_path: Path to the image file
+        pose: Camera pose data
+        lens_to_object_mm: Distance from lens to object center
+        rail_to_horizon_deg: Rail tilt angle 
+        theta_deg: Rotation angle around object
+        stack_index: Stack/perspective index
+    """
+    XCR_NS = 'http://www.capturingreality.com/ns/xcr/1.1#'
+    SC_NS = 'https://reprahkcin.github.io/scanner-companion/1.0#'  # Custom namespace
+    
+    x, y, z = pose.pos_m
+    R = pose.R_rowmajor
+    
+    xmp_content = f'''<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description xmlns:xcr="{XCR_NS}" xmlns:sc="{SC_NS}"
+    xcr:Version="3"
+    xcr:PosePrior="initial"
+    xcr:Coordinates="absolute"
+    xcr:CalibrationPrior="initial">
+    <xcr:Position>{x:.6f} {y:.6f} {z:.6f}</xcr:Position>
+    <xcr:Rotation>{R[0]:.9f} {R[1]:.9f} {R[2]:.9f} {R[3]:.9f} {R[4]:.9f} {R[5]:.9f} {R[6]:.9f} {R[7]:.9f} {R[8]:.9f}</xcr:Rotation>
+    <sc:LensToObject_mm>{lens_to_object_mm:.3f}</sc:LensToObject_mm>
+    <sc:RailToHorizon_deg>{rail_to_horizon_deg:.6f}</sc:RailToHorizon_deg>
+    <sc:Theta_deg>{theta_deg:.6f}</sc:Theta_deg>
+    <sc:StackIndex>{stack_index}</sc:StackIndex>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>'''
+    
+    # Create XMP file path (replace extension with .xmp)
+    xmp_path = img_path.rsplit('.', 1)[0] + '.xmp'
+    
+    with open(xmp_path, 'w', encoding='utf-8') as f:
+        f.write(xmp_content)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # CONFIGURATION SECTION
@@ -145,6 +255,10 @@ class ScannerGUI(tk.Tk):
         self.is_calibrated = False
         self.current_calibration_angle = 0
         self.current_calibration_focus = "near"
+        
+        # === XMP pose settings ===
+        self.lens_to_object_mm = tk.DoubleVar(value=250.0)  # Distance from lens to object center
+        self.rail_to_horizon_deg = tk.DoubleVar(value=0.0)  # Camera pitch from horizontal
 
         # === Capture settings ===
         self.specimen_name = tk.StringVar(value="specimen_001")
@@ -477,6 +591,25 @@ class ScannerGUI(tk.Tk):
         
         controls_grid.columnconfigure(0, weight=1)
         controls_grid.columnconfigure(1, weight=1)
+        
+        # XMP Pose Settings
+        self.xmp_settings_frame = ttk.LabelFrame(right_column, text="XMP Pose Settings", padding=10)
+        self.xmp_settings_frame.pack(fill="x", pady=(0,10))
+        
+        xmp_grid = ttk.Frame(self.xmp_settings_frame)
+        xmp_grid.pack(fill="x")
+        
+        ttk.Label(xmp_grid, text="Lens to Object (mm):").grid(row=0, column=0, sticky="w", pady=2)
+        self.lens_distance_entry = ttk.Entry(xmp_grid, textvariable=self.lens_to_object_mm, width=12)
+        self.lens_distance_entry.grid(row=0, column=1, sticky="w", padx=(5,0), pady=2)
+        
+        ttk.Label(xmp_grid, text="Rail to Horizon (deg):").grid(row=1, column=0, sticky="w", pady=2)
+        self.rail_angle_entry = ttk.Entry(xmp_grid, textvariable=self.rail_to_horizon_deg, width=12)
+        self.rail_angle_entry.grid(row=1, column=1, sticky="w", padx=(5,0), pady=2)
+        
+        # Help text
+        help_text = "Distance: lens entrance pupil to object center\nAngle: positive = camera pitched up, negative = down"
+        ttk.Label(xmp_grid, text=help_text, foreground="#666", justify="left").grid(row=2, column=0, columnspan=2, sticky="w", pady=(5,0))
         
         # Calibration progress
         self.calibration_progress_frame = ttk.LabelFrame(right_column, text="Progress Log", padding=10)
@@ -1229,6 +1362,19 @@ class ScannerGUI(tk.Tk):
             - Enables save/capture buttons
             - Disables calibration workflow buttons
         """
+        # Validate XMP settings before completing
+        try:
+            lens_dist = float(self.lens_to_object_mm.get())
+            rail_angle = float(self.rail_to_horizon_deg.get())
+            
+            if lens_dist <= 0:
+                messagebox.showwarning("XMP Settings", "Please enter a valid lens to object distance (> 0)")
+                return
+                
+        except ValueError:
+            messagebox.showwarning("XMP Settings", "Please enter valid numeric values for XMP pose settings")
+            return
+        
         self.is_calibrated = True
         self.calibration_status_var.set("Calibrated")
         
@@ -1238,7 +1384,8 @@ class ScannerGUI(tk.Tk):
         self.btn_next_step.config(state="disabled")
         self.btn_save_calibration.config(state="normal")
         
-        self.log_calibration("Calibration complete! You can now run capture sequences.")
+        self.log_calibration("Calibration complete! XMP pose settings validated.")
+        self.log_calibration("You can now run capture sequences with XMP sidecars.")
         
         # Update status display color
         for widget in self.calibration_status_frame.winfo_children():
@@ -1256,6 +1403,10 @@ class ScannerGUI(tk.Tk):
         self.current_angle_var.set(f"{CALIBRATION_ANGLES[0]}°")
         self.current_focus_var.set("Near")
         self.calibration_status_var.set("Not Calibrated")
+        
+        # Reset XMP settings to defaults
+        self.lens_to_object_mm.set(250.0)
+        self.rail_to_horizon_deg.set(0.0)
 
         # Update status label color back to red
         for widget in self.calibration_status_frame.winfo_children():
@@ -1284,13 +1435,9 @@ class ScannerGUI(tk.Tk):
         without repeating the wizard.
         
         File Format:
-            JSON structure: {angle: {"near": mm_pos, "far": mm_pos}, ...}
-            
-        Example:
-            {
-                "0": {"near": 10.0, "far": 50.0},
-                "90": {"near": 12.0, "far": 52.0},
-                ...
+            JSON structure: {
+                "focus_positions": {angle: {"near": mm_pos, "far": mm_pos}, ...},
+                "xmp_settings": {"lens_to_object_mm": float, "rail_to_horizon_deg": float}
             }
         """
         filename = filedialog.asksaveasfilename(
@@ -1301,8 +1448,17 @@ class ScannerGUI(tk.Tk):
         
         if filename:
             try:
+                # Prepare calibration data with XMP settings
+                cal_data = {
+                    "focus_positions": self.calibration_data,
+                    "xmp_settings": {
+                        "lens_to_object_mm": float(self.lens_to_object_mm.get()),
+                        "rail_to_horizon_deg": float(self.rail_to_horizon_deg.get())
+                    }
+                }
+                
                 with open(filename, 'w') as f:
-                    json.dump(self.calibration_data, f, indent=2)
+                    json.dump(cal_data, f, indent=2)
                 self.log_calibration(f"Calibration saved to {filename}")
                 messagebox.showinfo("Save", "Calibration data saved successfully!")
             except Exception as e:
@@ -1329,8 +1485,21 @@ class ScannerGUI(tk.Tk):
                 with open(filename, 'r') as f:
                     loaded = json.load(f)
 
-                # Normalize keys to integers and values to floats
-                self.calibration_data = self._normalize_calibration_data(loaded)
+                # Handle both old format (direct angle mapping) and new format (with xmp_settings)
+                if "focus_positions" in loaded:
+                    # New format with XMP settings
+                    self.calibration_data = self._normalize_calibration_data(loaded["focus_positions"])
+                    
+                    # Load XMP settings if present
+                    if "xmp_settings" in loaded:
+                        xmp_settings = loaded["xmp_settings"]
+                        if "lens_to_object_mm" in xmp_settings:
+                            self.lens_to_object_mm.set(float(xmp_settings["lens_to_object_mm"]))
+                        if "rail_to_horizon_deg" in xmp_settings:
+                            self.rail_to_horizon_deg.set(float(xmp_settings["rail_to_horizon_deg"]))
+                else:
+                    # Old format (direct angle mapping) - maintain compatibility
+                    self.calibration_data = self._normalize_calibration_data(loaded)
 
                 # Validate calibration data
                 if self.validate_calibration_data():
@@ -1673,7 +1842,16 @@ class ScannerGUI(tk.Tk):
                 "angle_step_degrees": 360.0 / max(1, self.stacks_count.get()),
                 "settle_delay": self.settle_delay.get(),
                 "image_format": self.image_format.get(),
-                "calibration_data": self.calibration_data
+                "calibration_data": self.calibration_data,
+                "xmp_settings": {
+                    "lens_to_object_mm": float(self.lens_to_object_mm.get()),
+                    "rail_to_horizon_deg": float(self.rail_to_horizon_deg.get())
+                },
+                "xmp_consolidation": {
+                    "enabled": True,
+                    "directory": "xmp_files",
+                    "naming_pattern": "perspective_{perspective:02d}_angle_{angle:06.2f}.xmp"
+                }
             }
             
             with open(os.path.join(session_dir, "metadata.json"), 'w') as f:
@@ -1747,11 +1925,80 @@ class ScannerGUI(tk.Tk):
                     self.after(0, self.progress_label_var.set, f"Captured {image_count}/{total_images} images")
                     if image_count % 10 == 0:
                         self.after(0, self.log_capture, f"Captured {image_count} images")
+
+                # Generate XMP sidecar for this stack (perspective)
+                # This will be used for the flattened image from this angle
+                try:
+                    # Calculate camera pose for this angle
+                    lens_dist = float(self.lens_to_object_mm.get())
+                    rail_angle = float(self.rail_to_horizon_deg.get())
+                    pose = ring_pose(lens_dist, rail_angle, angle)
+                    
+                    # Create XMP file for the stack (to be used with flattened image)
+                    stack_xmp_filename = f"stack_{perspective:02d}_angle_{angle:06.2f}.xmp"
+                    stack_xmp_path = os.path.join(stack_dir, stack_xmp_filename)
+                    
+                    # Write XMP with pose data
+                    write_xmp_sidecar(stack_xmp_path.replace('.xmp', '.jpg'), pose, 
+                                    lens_dist, rail_angle, angle, perspective)
+                    
+                    self.after(0, self.log_capture, f"Generated XMP for stack {perspective} at {angle:.2f}°")
+                    
+                except Exception as e:
+                    self.after(0, self.log_capture, f"Warning: Failed to generate XMP for stack {perspective}: {e}")
             
-            # Complete
+            # Complete - consolidate XMP files
             if self.capture_running:
+                try:
+                    # Create consolidated XMP directory
+                    xmp_dir = os.path.join(session_dir, "xmp_files")
+                    os.makedirs(xmp_dir, exist_ok=True)
+                    
+                    # Copy all XMP files to consolidated directory
+                    xmp_count = 0
+                    for perspective in range(self.stacks_count.get()):
+                        angle = perspective * angle_step
+                        stack_dir = os.path.join(session_dir, f"stack_{perspective:02d}")
+                        
+                        # Find XMP file in stack directory
+                        xmp_filename = f"stack_{perspective:02d}_angle_{angle:06.2f}.xmp"
+                        source_xmp = os.path.join(stack_dir, xmp_filename)
+                        
+                        if os.path.exists(source_xmp):
+                            # Create consolidated filename for RealityCapture import
+                            consolidated_filename = f"perspective_{perspective:02d}_angle_{angle:06.2f}.xmp"
+                            dest_xmp = os.path.join(xmp_dir, consolidated_filename)
+                            
+                            # Copy XMP file
+                            import shutil
+                            shutil.copy2(source_xmp, dest_xmp)
+                            xmp_count += 1
+                    
+                    # Copy helper script and README to session directory for portability
+                    import shutil
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    
+                    # Copy helper script
+                    helper_script_source = os.path.join(script_dir, "rename_xmp_for_rc.py")
+                    if os.path.exists(helper_script_source):
+                        helper_script_dest = os.path.join(session_dir, "rename_xmp_for_rc.py")
+                        shutil.copy2(helper_script_source, helper_script_dest)
+                        self.after(0, lambda: self.log_capture("Helper script copied to session directory"))
+                    
+                    # Copy README guide
+                    readme_source = os.path.join(script_dir, "SESSION_README.md")
+                    if os.path.exists(readme_source):
+                        readme_dest = os.path.join(session_dir, "README.md")
+                        shutil.copy2(readme_source, readme_dest)
+                        self.after(0, lambda: self.log_capture("Workflow README copied to session directory"))
+                    
+                    self.after(0, lambda: self.log_capture(f"Consolidated {xmp_count} XMP files to: {xmp_dir}"))
+                    
+                except Exception as e:
+                    self.after(0, lambda: self.log_capture(f"Warning: Failed to consolidate XMP files: {e}"))
+                
                 self.after(0, lambda: self.log_capture(f"Capture sequence complete! {image_count} images saved to {session_dir}"))
-                self.after(0, lambda: messagebox.showinfo("Complete", f"Capture sequence complete!\n{image_count} images saved."))
+                self.after(0, lambda: messagebox.showinfo("Complete", f"Capture sequence complete!\n{image_count} images saved.\nXMP files consolidated in xmp_files directory."))
             
         except Exception as e:
             self.after(0, lambda: self.log_capture(f"Capture error: {e}"))

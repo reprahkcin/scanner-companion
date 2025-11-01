@@ -1,0 +1,24 @@
+{
+  "focus_positions": {
+    "0": {
+      "near": 0.0,
+      "far": 10.0
+    },
+    "90": {
+      "near": 0.0,
+      "far": 10.0
+    },
+    "180": {
+      "near": 0.0,
+      "far": 10.0
+    },
+    "270": {
+      "near": 0.0,
+      "far": 10.0
+    }
+  },
+  "xmp_settings": {
+    "lens_to_object_mm": 250.0,
+    "rail_to_horizon_deg": 0.0
+  }
+}
