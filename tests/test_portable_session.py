@@ -8,8 +8,8 @@ import sys
 import tempfile
 import shutil
 
-# Add current directory to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add parent directory to path to import scanner_control
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def test_portable_session():
     """Test that session directories are self-contained and portable"""
@@ -45,8 +45,8 @@ def test_portable_session():
         print(f"  Created {len(test_angles)} test XMP files")
         
         # Copy helper script to session (simulating what the scanner does)
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        helper_source = os.path.join(script_dir, "rename_xmp_for_rc.py")
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        helper_source = os.path.join(script_dir, "templates", "rename_xmp_for_rc.py")
         helper_dest = os.path.join(session_dir, "rename_xmp_for_rc.py")
         
         if os.path.exists(helper_source):
@@ -56,7 +56,7 @@ def test_portable_session():
             print("  ⚠ Helper script not found (this is expected in test)")
         
         # Copy README to session (simulating what the scanner does)
-        readme_source = os.path.join(script_dir, "SESSION_README.md")
+        readme_source = os.path.join(script_dir, "templates", "SESSION_README.md")
         readme_dest = os.path.join(session_dir, "README.md")
         
         if os.path.exists(readme_source):

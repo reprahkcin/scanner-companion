@@ -117,7 +117,7 @@ python rename_xmp_for_rc.py . "scan_{angle:06.2f}.xmp"
 
 Run the test suite to verify everything works:
 ```bash
-python test_xmp_feature.py
+python tests/test_xmp_feature.py
 ```
 
 ## Coordinate System

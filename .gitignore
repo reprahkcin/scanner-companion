@@ -52,6 +52,10 @@ output/
 captures/
 calibrations/
 temp/
+session_*/
+
+# Generated test files
+test.jpg
 
 # Camera test images
 test_*.jpg

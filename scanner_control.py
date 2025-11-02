@@ -1979,14 +1979,14 @@ class ScannerGUI(tk.Tk):
                     script_dir = os.path.dirname(os.path.abspath(__file__))
                     
                     # Copy helper script
-                    helper_script_source = os.path.join(script_dir, "rename_xmp_for_rc.py")
+                    helper_script_source = os.path.join(script_dir, "templates", "rename_xmp_for_rc.py")
                     if os.path.exists(helper_script_source):
                         helper_script_dest = os.path.join(session_dir, "rename_xmp_for_rc.py")
                         shutil.copy2(helper_script_source, helper_script_dest)
                         self.after(0, lambda: self.log_capture("Helper script copied to session directory"))
                     
                     # Copy README guide
-                    readme_source = os.path.join(script_dir, "SESSION_README.md")
+                    readme_source = os.path.join(script_dir, "templates", "SESSION_README.md")
                     if os.path.exists(readme_source):
                         readme_dest = os.path.join(session_dir, "README.md")
                         shutil.copy2(readme_source, readme_dest)

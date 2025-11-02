@@ -7,8 +7,8 @@ import sys
 import os
 import tempfile
 
-# Add current directory to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add parent directory to path to import scanner_control
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scanner_control import ring_pose, write_xmp_sidecar, RigPose
 
