@@ -133,15 +133,18 @@ def write_xmp_sidecar(img_path: str, pose: RigPose,
                       position_scale: float = 1.0) -> None:
     """Write XMP sidecar file with camera pose data in RealityCapture format.
     
+    Generates XMP metadata files conforming to RealityCapture's XMP specification.
+    See: https://rshelp.capturingreality.com/en-US/tools/xmpalign.htm
+    
     Args:
         img_path: Path to the image file
-        pose: Camera pose data
+        pose: Camera pose data (position and rotation matrix)
         lens_to_object_mm: Distance from lens to object center (for metadata)
         rail_to_horizon_deg: Rail tilt angle (for metadata)
         theta_deg: Rotation angle around object (for metadata)
         stack_index: Stack/perspective index (for metadata)
         focal_length_35mm: 35mm equivalent focal length
-        distortion_model: Lens distortion model (typically "brown3")
+        distortion_model: Lens distortion model (e.g., "brown3", "division")
         skew: Camera skew parameter
         aspect_ratio: Pixel aspect ratio
         principal_point_u: Principal point U coordinate (normalized)
@@ -152,6 +155,11 @@ def write_xmp_sidecar(img_path: str, pose: RigPose,
         in_texturing: Include in texturing phase (1=yes, 0=no)
         in_meshing: Include in meshing phase (1=yes, 0=no)
         position_scale: Scale factor for position values (e.g., 1000 for macro)
+    
+    Note:
+        RealityCapture requires specific attribute spelling: "DistortionCoeficients"
+        (not "Coefficients"). The rotation matrix must be 9 space-separated values
+        in row-major order.
     """
     XCR_NS = 'http://www.capturingreality.com/ns/xcr/1.1#'
     
@@ -163,22 +171,35 @@ def write_xmp_sidecar(img_path: str, pose: RigPose,
     
     R = pose.R_rowmajor
     
-    # Format distortion coefficients
+    # Format distortion coefficients (note: RealityCapture uses "Coeficients" spelling)
     dist_str = " ".join(f"{c}" for c in distortion_coefficients)
     
+    # Format rotation matrix as space-separated values
+    rotation_str = " ".join(f"{r}" for r in R)
+    
+    # Build XMP content following RealityCapture specification exactly
     xmp_content = f'''<x:xmpmeta xmlns:x="adobe:ns:meta/">
-  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-    <rdf:Description xcr:Version="3" xcr:PosePrior="initial" xcr:Coordinates="absolute"
-       xcr:DistortionModel="{distortion_model}" xcr:FocalLength35mm="{focal_length_35mm}"
-       xcr:Skew="{skew}" xcr:AspectRatio="{aspect_ratio}" xcr:PrincipalPointU="{principal_point_u}"
-       xcr:PrincipalPointV="{principal_point_v}" xcr:CalibrationPrior="initial"
-       xcr:CalibrationGroup="{calibration_group}" xcr:DistortionGroup="{distortion_group}" xcr:InTexturing="{in_texturing}"
-       xcr:InMeshing="{in_meshing}" xmlns:xcr="{XCR_NS}">
-      <xcr:Rotation>{R[0]} {R[1]} {R[2]} {R[3]} {R[4]} {R[5]} {R[6]} {R[7]} {R[8]}</xcr:Rotation>
-      <xcr:Position>{x_scaled} {y_scaled} {z_scaled}</xcr:Position>
-      <xcr:DistortionCoeficients>{dist_str}</xcr:DistortionCoeficients>
-    </rdf:Description>
-  </rdf:RDF>
+    <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+        <rdf:Description xmlns:xcr="{XCR_NS}"
+            xcr:Version="3"
+            xcr:PosePrior="initial"
+            xcr:Rotation="{rotation_str}"
+            xcr:Coordinates="absolute"
+            xcr:DistortionModel="{distortion_model}"
+            xcr:DistortionCoeficients="{dist_str}"
+            xcr:FocalLength35mm="{focal_length_35mm}"
+            xcr:Skew="{skew}"
+            xcr:AspectRatio="{aspect_ratio}"
+            xcr:PrincipalPointU="{principal_point_u}"
+            xcr:PrincipalPointV="{principal_point_v}"
+            xcr:CalibrationPrior="initial"
+            xcr:CalibrationGroup="{calibration_group}"
+            xcr:DistortionGroup="{distortion_group}"
+            xcr:InTexturing="{in_texturing}"
+            xcr:InMeshing="{in_meshing}">
+            <xcr:Position>{x_scaled} {y_scaled} {z_scaled}</xcr:Position>
+        </rdf:Description>
+    </rdf:RDF>
 </x:xmpmeta>'''
     
     # Create XMP file path (replace extension with .xmp)
