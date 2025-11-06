@@ -121,6 +121,7 @@ def main():
     directory = Path.cwd()  # Always use current directory
     recursive = False
     create_backup = True
+    skip_confirm = False
     
     # Check for flags
     if '--recursive' in args or '-r' in args:
@@ -128,6 +129,9 @@ def main():
     
     if '--no-backup' in args:
         create_backup = False
+    
+    if '--yes' in args or '-y' in args:
+        skip_confirm = True
     
     # Display configuration
     print("=" * 60)
@@ -140,14 +144,15 @@ def main():
     print("=" * 60)
     
     # Confirm action
-    try:
-        response = input("\nProceed with EXIF stripping? (y/n): ").strip().lower()
-        if response not in ('y', 'yes'):
-            print("Operation cancelled.")
+    if not skip_confirm:
+        try:
+            response = input("\nProceed with EXIF stripping? (y/n): ").strip().lower()
+            if response not in ('y', 'yes'):
+                print("Operation cancelled.")
+                sys.exit(0)
+        except KeyboardInterrupt:
+            print("\nOperation cancelled.")
             sys.exit(0)
-    except KeyboardInterrupt:
-        print("\nOperation cancelled.")
-        sys.exit(0)
     
     # Process images
     success_count, fail_count = process_directory(directory, recursive, create_backup)

@@ -52,11 +52,6 @@ output/
 captures/
 calibrations/
 temp/
-session_*/
-
-# Generated test files
-test.jpg
-test_*.py
 
 # Camera test images
 test_*.jpg
@@ -71,3 +66,4 @@ test_*.tiff
 # Raspberry Pi specific
 *.img
 *.zip
+

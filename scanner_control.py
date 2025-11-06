@@ -99,8 +99,15 @@ def ring_pose(distance_mm: float, rail_deg: float, theta_deg: float) -> RigPose:
 
     # Camera axes: forward points from camera to target
     f = vnorm(vsub(tgt, C))  # Forward (toward object)
-    rgt = vnorm(vcross(f, upW))  # Right
-    up = vcross(rgt, f)  # Up
+    
+    # Handle gimbal lock when camera is directly above/below
+    if abs(f[0]) < 1e-6 and abs(f[1]) < 1e-6:
+        # Camera pointing straight up or down
+        rgt = (1.0, 0.0, 0.0)  # Arbitrary right vector
+    else:
+        rgt = vnorm(vcross(f, upW))  # Right
+    
+    up = vnorm(vcross(rgt, f))  # Up (normalized for numerical stability)
 
     # RealityCapture uses standard photogrammetry convention:
     # World-to-camera rotation matrix with +Z forward, +Y down (OpenCV style)
@@ -821,14 +828,21 @@ TIPS:
         self.position_scale_entry = ttk.Entry(pose_grid, textvariable=self.xmp_position_scale, width=12)
         self.position_scale_entry.grid(row=3, column=1, sticky="w", padx=(5,0), pady=2)
         
-        # Help text
+        # Help text with scale factor calculator
         help_text = """Distance: lens entrance pupil to object center
 Angle: positive = camera pitched up, negative = down
 Focal: 35mm equivalent (typical Pi cam: 50-60mm)
-Scale: Multiply positions by this factor (for macro/micro)
-  • 1.0 = no scaling (default for normal photography)
-  • 1000.0 = scale mm to meters (recommended for 100x+ magnification)
-  • Scale final model back down by same factor in RealityCapture"""
+
+Position Scale Factor Guide:
+  • Rule of thumb: scale = 1000 × (500 / distance_mm)
+  • 250mm distance → scale = 2,000
+  • 100mm distance → scale = 5,000  
+  • 49mm distance → scale = 10,000
+  • < 10mm distance → scale = 100,000+
+  
+This prevents visualization artifacts where camera frustums
+appear much larger than the camera circle. Scale the final
+3D model back down by the same factor in RealityCapture."""
         ttk.Label(pose_grid, text=help_text, foreground="#666", justify="left", font=("TkDefaultFont", 8)).grid(row=4, column=0, columnspan=2, sticky="w", pady=(5,0))
         
         # Tab 2: Camera Intrinsics
