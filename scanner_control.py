@@ -2394,7 +2394,12 @@ appear much larger than the camera circle. Scale the final
                     # Calculate camera pose for this angle
                     lens_dist = float(self.lens_to_object_mm.get())
                     rail_angle = float(self.rail_to_horizon_deg.get())
-                    pose = ring_pose(lens_dist, rail_angle, angle)
+                    position_scale = float(self.xmp_position_scale.get())
+                    
+                    # Apply position scaling to distance BEFORE calculating pose
+                    # This ensures rotation matrix is calculated for the scaled position
+                    scaled_lens_dist = lens_dist * position_scale
+                    pose = ring_pose(scaled_lens_dist, rail_angle, angle)
                     
                     # Create XMP file for the stack (to be used with flattened image)
                     stack_xmp_filename = f"stack_{perspective:02d}_angle_{angle:06.2f}.xmp"
@@ -2411,10 +2416,11 @@ appear much larger than the camera circle. Scale the final
                     )
                     
                     # Write XMP with pose data and camera calibration
+                    # Note: position_scale is now 1.0 since we already scaled the distance
                     write_xmp_sidecar(
                         stack_xmp_path.replace('.xmp', '.jpg'), 
                         pose, 
-                        lens_dist, 
+                        lens_dist,  # Original distance for metadata
                         rail_angle, 
                         angle, 
                         perspective,
@@ -2425,7 +2431,7 @@ appear much larger than the camera circle. Scale the final
                         principal_point_u=self.principal_point_u.get(),
                         principal_point_v=self.principal_point_v.get(),
                         distortion_coefficients=distortion_coeffs,
-                        position_scale=self.xmp_position_scale.get()
+                        position_scale=1.0  # Already scaled in ring_pose calculation
                     )
                     
                     self.after(0, self.log_capture, f"Generated XMP for stack {perspective} at {angle:.2f}°")
