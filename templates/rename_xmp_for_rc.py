@@ -26,13 +26,29 @@ def rename_xmp_files(session_dir, naming_pattern):
         print(f"Error: XMP directory not found: {xmp_dir}")
         return False
     
-    # Find all perspective XMP files
-    xmp_files = glob.glob(os.path.join(xmp_dir, "perspective_*_angle_*.xmp"))
+    # Find all stack XMP files
+    xmp_files = glob.glob(os.path.join(xmp_dir, "stack_*.xmp"))
     if not xmp_files:
-        print(f"Error: No perspective XMP files found in {xmp_dir}")
+        print(f"Error: No stack XMP files found in {xmp_dir}")
         return False
     
     print(f"Found {len(xmp_files)} XMP files to rename...")
+    
+    # Try to read metadata to get angle step, otherwise calculate from number of files
+    metadata_path = os.path.join(session_dir, "metadata.json")
+    angle_step = None
+    if os.path.exists(metadata_path):
+        try:
+            import json
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+            perspectives = metadata.get('capture_settings', {}).get('perspectives', len(xmp_files))
+            angle_step = 360.0 / perspectives
+        except:
+            pass
+    
+    if angle_step is None:
+        angle_step = 360.0 / len(xmp_files)
     
     # Create renamed directory
     renamed_dir = os.path.join(session_dir, "xmp_renamed")
@@ -41,12 +57,13 @@ def rename_xmp_files(session_dir, naming_pattern):
     renamed_count = 0
     
     for xmp_file in sorted(xmp_files):
-        # Extract angle from filename
+        # Extract stack number from filename
         filename = os.path.basename(xmp_file)
-        match = re.search(r'angle_(\d+\.\d+)\.xmp', filename)
+        match = re.search(r'stack_(\d+)\.xmp', filename)
         
         if match:
-            angle = float(match.group(1))
+            stack_num = int(match.group(1))
+            angle = stack_num * angle_step
             
             # Generate new filename using pattern
             try:
@@ -61,7 +78,7 @@ def rename_xmp_files(session_dir, naming_pattern):
             except Exception as e:
                 print(f"  Error renaming {filename}: {e}")
         else:
-            print(f"  Warning: Could not extract angle from {filename}")
+            print(f"  Warning: Could not extract stack number from {filename}")
     
     print(f"\nRenamed {renamed_count} XMP files to: {renamed_dir}")
     print(f"Copy these XMP files to the same directory as your focus-stacked images.")

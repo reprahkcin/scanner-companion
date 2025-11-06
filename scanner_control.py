@@ -102,15 +102,12 @@ def ring_pose(distance_mm: float, rail_deg: float, theta_deg: float) -> RigPose:
     rgt = vnorm(vcross(f, upW))  # Right
     up = vcross(rgt, f)  # Up
 
-    # Build camera-to-world rotation matrix
-    Rc2w = ((rgt[0], rgt[1], rgt[2]),
-            (up[0], up[1], up[2]),
-            (-f[0], -f[1], -f[2]))  # Note: -f for right-handed coordinate system
-
-    # RealityCapture expects world-to-camera rotation (transpose)
-    Rw2c = ((Rc2w[0][0], Rc2w[1][0], Rc2w[2][0]),
-            (Rc2w[0][1], Rc2w[1][1], Rc2w[2][1]),
-            (Rc2w[0][2], Rc2w[1][2], Rc2w[2][2]))
+    # RealityCapture uses standard photogrammetry convention:
+    # World-to-camera rotation matrix with +Z forward, +Y down (OpenCV style)
+    # Rows represent camera axes in world coordinates
+    Rw2c = ((rgt[0], rgt[1], rgt[2]),      # Camera X-axis (right) in world
+            (-up[0], -up[1], -up[2]),       # Camera Y-axis (down) in world
+            (f[0], f[1], f[2]))             # Camera Z-axis (forward) in world
 
     # Serialize to 9 numbers in row-major order
     R9 = (Rw2c[0][0], Rw2c[0][1], Rw2c[0][2],
@@ -121,38 +118,67 @@ def ring_pose(distance_mm: float, rail_deg: float, theta_deg: float) -> RigPose:
 
 def write_xmp_sidecar(img_path: str, pose: RigPose, 
                       lens_to_object_mm: float, rail_to_horizon_deg: float,
-                      theta_deg: float, stack_index: int) -> None:
-    """Write XMP sidecar file with camera pose data.
+                      theta_deg: float, stack_index: int,
+                      focal_length_35mm: float = 50.0,
+                      distortion_model: str = "brown3",
+                      skew: float = 0.0,
+                      aspect_ratio: float = 1.0,
+                      principal_point_u: float = 0.0,
+                      principal_point_v: float = 0.0,
+                      distortion_coefficients: tuple = (-0.1, 0.1, 0.0, 0.0, 0.0, 0.0),
+                      calibration_group: int = -1,
+                      distortion_group: int = -1,
+                      in_texturing: int = 1,
+                      in_meshing: int = 1,
+                      position_scale: float = 1.0) -> None:
+    """Write XMP sidecar file with camera pose data in RealityCapture format.
     
     Args:
         img_path: Path to the image file
         pose: Camera pose data
-        lens_to_object_mm: Distance from lens to object center
-        rail_to_horizon_deg: Rail tilt angle 
-        theta_deg: Rotation angle around object
-        stack_index: Stack/perspective index
+        lens_to_object_mm: Distance from lens to object center (for metadata)
+        rail_to_horizon_deg: Rail tilt angle (for metadata)
+        theta_deg: Rotation angle around object (for metadata)
+        stack_index: Stack/perspective index (for metadata)
+        focal_length_35mm: 35mm equivalent focal length
+        distortion_model: Lens distortion model (typically "brown3")
+        skew: Camera skew parameter
+        aspect_ratio: Pixel aspect ratio
+        principal_point_u: Principal point U coordinate (normalized)
+        principal_point_v: Principal point V coordinate (normalized)
+        distortion_coefficients: Tuple of 6 distortion coefficients (k1-k6)
+        calibration_group: Calibration group ID (-1 for independent)
+        distortion_group: Distortion group ID (-1 for independent)
+        in_texturing: Include in texturing phase (1=yes, 0=no)
+        in_meshing: Include in meshing phase (1=yes, 0=no)
+        position_scale: Scale factor for position values (e.g., 1000 for macro)
     """
     XCR_NS = 'http://www.capturingreality.com/ns/xcr/1.1#'
-    SC_NS = 'https://reprahkcin.github.io/scanner-companion/1.0#'  # Custom namespace
     
+    # Apply position scaling (for macro/micro work with very small distances)
     x, y, z = pose.pos_m
+    x_scaled = x * position_scale
+    y_scaled = y * position_scale
+    z_scaled = z * position_scale
+    
     R = pose.R_rowmajor
     
+    # Format distortion coefficients
+    dist_str = " ".join(f"{c}" for c in distortion_coefficients)
+    
     xmp_content = f'''<x:xmpmeta xmlns:x="adobe:ns:meta/">
- <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-  <rdf:Description xmlns:xcr="{XCR_NS}" xmlns:sc="{SC_NS}"
-    xcr:Version="3"
-    xcr:PosePrior="initial"
-    xcr:Coordinates="absolute"
-    xcr:CalibrationPrior="initial">
-    <xcr:Position>{x:.6f} {y:.6f} {z:.6f}</xcr:Position>
-    <xcr:Rotation>{R[0]:.9f} {R[1]:.9f} {R[2]:.9f} {R[3]:.9f} {R[4]:.9f} {R[5]:.9f} {R[6]:.9f} {R[7]:.9f} {R[8]:.9f}</xcr:Rotation>
-    <sc:LensToObject_mm>{lens_to_object_mm:.3f}</sc:LensToObject_mm>
-    <sc:RailToHorizon_deg>{rail_to_horizon_deg:.6f}</sc:RailToHorizon_deg>
-    <sc:Theta_deg>{theta_deg:.6f}</sc:Theta_deg>
-    <sc:StackIndex>{stack_index}</sc:StackIndex>
-  </rdf:Description>
- </rdf:RDF>
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description xcr:Version="3" xcr:PosePrior="initial" xcr:Coordinates="absolute"
+       xcr:DistortionModel="{distortion_model}" xcr:FocalLength35mm="{focal_length_35mm}"
+       xcr:Skew="{skew}" xcr:AspectRatio="{aspect_ratio}" xcr:PrincipalPointU="{principal_point_u}"
+       xcr:PrincipalPointV="{principal_point_v}" xcr:CalibrationPrior="initial"
+       xcr:CalibrationGroup="{calibration_group}" xcr:DistortionGroup="{distortion_group}" xcr:InTexturing="{in_texturing}"
+       xcr:InMeshing="{in_meshing}" xmlns:xcr="{XCR_NS}">
+      <xcr:Rotation>{R[0]} {R[1]} {R[2]} {R[3]} {R[4]} {R[5]} {R[6]} {R[7]} {R[8]}</xcr:Rotation>
+      <xcr:Position>{x_scaled} {y_scaled} {z_scaled}</xcr:Position>
+      <xcr:DistortionCoeficients>{dist_str}</xcr:DistortionCoeficients>
+    </rdf:Description>
+  </rdf:RDF>
 </x:xmpmeta>'''
     
     # Create XMP file path (replace extension with .xmp)
@@ -230,6 +256,16 @@ class ScannerGUI(tk.Tk):
         self.title("3D Scanner Control Panel - v1.0")
         self.minsize(800, 600)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        # Radical fix for window jumping to background - keep window always on top
+        # This is aggressive but should solve the Raspberry Pi window manager issue
+        self.wm_attributes('-topmost', True)
+        self.focus_force()
+        self.grab_set()
+        
+        # Set up periodic focus maintenance
+        self._focus_maintenance_active = True
+        self.after(100, self._maintain_focus)
 
         # === Serial Setup ===
         try:
@@ -259,6 +295,26 @@ class ScannerGUI(tk.Tk):
         # === XMP pose settings ===
         self.lens_to_object_mm = tk.DoubleVar(value=250.0)  # Distance from lens to object center
         self.rail_to_horizon_deg = tk.DoubleVar(value=0.0)  # Camera pitch from horizontal
+        
+        # === Camera calibration parameters for XMP ===
+        self.focal_length_35mm = tk.DoubleVar(value=50.0)  # 35mm equivalent focal length
+        self.distortion_model = tk.StringVar(value="brown3")  # Lens distortion model
+        self.skew = tk.DoubleVar(value=0.0)  # Camera skew parameter
+        self.aspect_ratio = tk.DoubleVar(value=1.0)  # Pixel aspect ratio
+        self.principal_point_u = tk.DoubleVar(value=0.0)  # Principal point U (normalized)
+        self.principal_point_v = tk.DoubleVar(value=0.0)  # Principal point V (normalized)
+        # Distortion coefficients (k1-k6 for Brown model)
+        self.distortion_k1 = tk.DoubleVar(value=0.0)
+        self.distortion_k2 = tk.DoubleVar(value=0.0)
+        self.distortion_k3 = tk.DoubleVar(value=0.0)
+        self.distortion_p1 = tk.DoubleVar(value=0.0)
+        self.distortion_p2 = tk.DoubleVar(value=0.0)
+        self.distortion_k4 = tk.DoubleVar(value=0.0)
+        
+        # === XMP Position Scale Factor ===
+        # For macro/micro photography, scale up positions to avoid precision issues
+        # e.g., 1000.0 converts 0.001m to 1.0m in XMP (scale model back in RC)
+        self.xmp_position_scale = tk.DoubleVar(value=1.0)  # 1.0 = no scaling
 
         # === Capture settings ===
         self.specimen_name = tk.StringVar(value="specimen_001")
@@ -303,6 +359,10 @@ class ScannerGUI(tk.Tk):
         # Build the GUI
         self._build_gui()
         self._layout_gui()
+        
+        # Simple focus handling - just bind to main window click
+        self.bind("<Button-1>", self._on_window_click)
+        self.bind("<FocusOut>", self._on_focus_lost)
 
         # Create output directory if it doesn't exist
         os.makedirs(DEFAULT_OUTPUT_DIR, exist_ok=True)
@@ -316,6 +376,9 @@ class ScannerGUI(tk.Tk):
             # Older Tk fallback
             self.rotation_scale.trace('w', lambda *_: self._save_app_settings())
             self.rotation_invert.trace('w', lambda *_: self._save_app_settings())
+            
+        # Initialize status displays
+        self.after(100, self._update_manual_status)
 
     def _build_gui(self):
         # Create main notebook for tabs
@@ -345,19 +408,45 @@ class ScannerGUI(tk.Tk):
         self.status_bar = ttk.Label(self, textvariable=self.status_var, relief="sunken", anchor="w")
 
     def _build_manual_tab(self):
-        """Build the manual control tab with simplified layout"""
+        """Build the manual control tab with controls on left and instructions on right"""
+        # Create main layout with left and right sections
+        main_frame = ttk.Frame(self.manual_tab)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        # Left column for camera and motor controls
+        left_column = ttk.Frame(main_frame)
+        left_column.pack(side="left", fill="both", expand=True, padx=(0,5))
+        
+        # Right column for instructions
+        right_column = ttk.Frame(main_frame)
+        right_column.pack(side="right", fill="both", expand=True, padx=(5,0))
+        
+        # === LEFT COLUMN: Camera and Motor Controls ===
+        
         # --- Camera Frame ---
-        self.camera_frame = ttk.LabelFrame(self.manual_tab, text="Camera Preview", padding=10)
+        self.camera_frame = ttk.LabelFrame(left_column, text="Camera Preview", padding=10)
+        self.camera_frame.pack(fill="both", expand=True, pady=(0,10))
+        
+        # Configure frame grid
+        self.camera_frame.columnconfigure(0, weight=1)
+        self.camera_frame.rowconfigure(0, weight=1)
+        
         self.preview_label = tk.Label(self.camera_frame, bg="black", anchor="center")
-        self.preview_label.grid(row=0, column=0, columnspan=2, padx=5, pady=5)
+        self.preview_label.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
         self.btn_preview = ttk.Button(self.camera_frame, text="Start Preview", command=self.toggle_preview)
-        self.btn_preview.grid(row=1, column=0, columnspan=2, pady=(5,0))
+        self.btn_preview.grid(row=1, column=0, pady=(5,0))
 
         # --- Motor Controls Frame ---
-        motors_frame = ttk.Frame(self.manual_tab)
+        motors_frame = ttk.Frame(left_column)
+        motors_frame.pack(fill="x")
+        
+        # Configure motors frame
+        motors_frame.columnconfigure(0, weight=1)
+        motors_frame.columnconfigure(1, weight=1)
         
         # --- Motor 1 Frame ---
         self.motor1_frame = ttk.LabelFrame(motors_frame, text="Motor 1 (Rotation)", padding=10)
+        self.motor1_frame.grid(row=0, column=0, padx=(0,5), pady=5, sticky="nsew")
         
         self.motor1_pos_var = tk.StringVar(value="0.0°")
         ttk.Label(self.motor1_frame, text="Position:").grid(row=0, column=0, sticky="w")
@@ -383,6 +472,7 @@ class ScannerGUI(tk.Tk):
 
         # --- Motor 2 Frame ---
         self.motor2_frame = ttk.LabelFrame(motors_frame, text="Motor 2 (Linear)", padding=10)
+        self.motor2_frame.grid(row=0, column=1, padx=(5,0), pady=5, sticky="nsew")
         
         self.motor2_pos_var = tk.StringVar(value="0.0mm")
         ttk.Label(self.motor2_frame, text="Position:").grid(row=0, column=0, sticky="w")
@@ -406,20 +496,107 @@ class ScannerGUI(tk.Tk):
         self.btn_m2_up = ttk.Button(btn_frame2, text="▲ Up", command=self.motor2_up)
         self.btn_m2_up.grid(row=0, column=2, padx=(5,0))
 
-        # Layout manual tab
-        self.manual_tab.columnconfigure(0, weight=1)
-        self.manual_tab.rowconfigure(0, weight=1)
-        self.manual_tab.rowconfigure(1, weight=1)
+        # === RIGHT COLUMN: Setup Instructions ===
         
-        self.camera_frame.grid(row=0, column=0, padx=10, pady=5, sticky="nsew")
-        motors_frame.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
+        # Hardware Setup Instructions
+        self.setup_instructions_frame = ttk.LabelFrame(right_column, text="Hardware Setup Instructions", padding=10)
+        self.setup_instructions_frame.pack(fill="both", expand=True, pady=(0,10))
         
-        # Configure motors frame
-        motors_frame.columnconfigure(0, weight=1)
-        motors_frame.columnconfigure(1, weight=1)
+        setup_instructions = """Initial Hardware Setup:
+
+1. POWER AND CONNECTIONS
+   • Ensure Arduino is connected via USB
+   • Power on turntable and linear rail motors
+   • Connect camera ribbon cable securely
+   • Start preview to verify camera operation
+
+2. OBJECT POSITIONING
+   • Place specimen on turntable center
+   • Use rotation controls to position object
+   • Object should remain centered as turntable rotates
+   • Adjust object or turntable as needed
+
+3. FOCUS PLANE SETUP (Linear Rail)
+   • Use linear rail to move camera closer/farther
+   • Start with camera at nearest focus position
+   • Object should fill most of preview frame
+   • Ensure object is clearly in focus
+
+4. ESTABLISH HOME POSITIONS
+   • Position turntable at desired 0° reference
+   • This will be your starting angle for captures
+   • Position rail at your nearest focus distance
+   • Press 'Home' buttons to set these as reference points
+
+5. TEST MOVEMENTS
+   • Test small movements with both motors
+   • Verify directions match your expectations
+   • Check that positions track correctly
+   • Adjust step sizes for fine control
+
+TIPS:
+• Start with small step sizes (1° rotation, 0.5mm linear)
+• Home positions are your reference points for calibration
+• The preview helps verify proper positioning
+• Use consistent lighting during setup"""
         
-        self.motor1_frame.grid(row=0, column=0, padx=(0,5), pady=5, sticky="nsew")
-        self.motor2_frame.grid(row=0, column=1, padx=(5,0), pady=5, sticky="nsew")
+        self.setup_instructions_text = tk.Text(self.setup_instructions_frame, wrap="word", 
+                                              width=50, height=25, font=("TkDefaultFont", 9))
+        self.setup_instructions_text.pack(fill="both", expand=True, side="left")
+        
+        # Add scrollbar for instructions
+        instructions_scrollbar = ttk.Scrollbar(self.setup_instructions_frame, orient="vertical", 
+                                              command=self.setup_instructions_text.yview)
+        instructions_scrollbar.pack(side="right", fill="y")
+        self.setup_instructions_text.config(yscrollcommand=instructions_scrollbar.set)
+        
+        # Insert instructions and make read-only
+        self.setup_instructions_text.insert("1.0", setup_instructions)
+        self.setup_instructions_text.config(state="disabled")
+        
+        # Status and Tips
+        self.manual_status_frame = ttk.LabelFrame(right_column, text="Current Status", padding=10)
+        self.manual_status_frame.pack(fill="x")
+        
+        status_info = ttk.Frame(self.manual_status_frame)
+        status_info.pack(fill="x")
+        
+        ttk.Label(status_info, text="Arduino:").grid(row=0, column=0, sticky="w")
+        self.arduino_status_var = tk.StringVar(value="Checking...")
+        ttk.Label(status_info, textvariable=self.arduino_status_var, 
+                 font=("TkDefaultFont", 9)).grid(row=0, column=1, sticky="w", padx=(5,0))
+        
+        ttk.Label(status_info, text="Camera:").grid(row=1, column=0, sticky="w")
+        self.camera_status_var = tk.StringVar(value="Not Started")
+        ttk.Label(status_info, textvariable=self.camera_status_var, 
+                 font=("TkDefaultFont", 9)).grid(row=1, column=1, sticky="w", padx=(5,0))
+        
+        # Update status display
+        self._update_manual_status()
+        
+        # Rotation Mapping Settings
+        self.rotation_map_frame = ttk.LabelFrame(right_column, text="Rotation Calibration", padding=10)
+        self.rotation_map_frame.pack(fill="x", pady=(10,0))
+        
+        map_grid = ttk.Frame(self.rotation_map_frame)
+        map_grid.pack(fill="x")
+        
+        ttk.Label(map_grid, text="Scale Factor:").grid(row=0, column=0, sticky="w", pady=2)
+        scale_entry = ttk.Entry(map_grid, textvariable=self.rotation_scale, width=10)
+        scale_entry.grid(row=0, column=1, sticky="w", padx=(5,0), pady=2)
+        ttk.Label(map_grid, text="(firmware° per actual°)", foreground="#666", 
+                 font=("TkDefaultFont", 8)).grid(row=0, column=2, sticky="w", padx=(5,0), pady=2)
+        
+        invert_check = ttk.Checkbutton(map_grid, text="Reverse Direction (CW ⟷ CCW)", 
+                                       variable=self.rotation_invert)
+        invert_check.grid(row=1, column=0, columnspan=3, sticky="w", pady=(5,2))
+        
+        # Help text
+        help_text = ("Test rotation: Command 90° and adjust scale until\n"
+                    "turntable physically rotates 90°. Check the invert\n"
+                    "option if CW/CCW directions are reversed.")
+        ttk.Label(map_grid, text=help_text, foreground="#666", justify="left", 
+                 font=("TkDefaultFont", 8)).grid(row=2, column=0, columnspan=3, sticky="w", pady=(5,0))
 
     def _build_calibration_tab(self):
         # Create main layout with left and right sections
@@ -593,23 +770,107 @@ class ScannerGUI(tk.Tk):
         controls_grid.columnconfigure(1, weight=1)
         
         # XMP Pose Settings
-        self.xmp_settings_frame = ttk.LabelFrame(right_column, text="XMP Pose Settings", padding=10)
+        self.xmp_settings_frame = ttk.LabelFrame(right_column, text="Camera Calibration (XMP)", padding=10)
         self.xmp_settings_frame.pack(fill="x", pady=(0,10))
         
-        xmp_grid = ttk.Frame(self.xmp_settings_frame)
-        xmp_grid.pack(fill="x")
+        # Create a notebook for organized settings
+        xmp_notebook = ttk.Notebook(self.xmp_settings_frame)
+        xmp_notebook.pack(fill="both", expand=True)
         
-        ttk.Label(xmp_grid, text="Lens to Object (mm):").grid(row=0, column=0, sticky="w", pady=2)
-        self.lens_distance_entry = ttk.Entry(xmp_grid, textvariable=self.lens_to_object_mm, width=12)
+        # Tab 1: Basic Pose Settings
+        pose_tab = ttk.Frame(xmp_notebook)
+        xmp_notebook.add(pose_tab, text="Pose")
+        
+        pose_grid = ttk.Frame(pose_tab)
+        pose_grid.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(pose_grid, text="Lens to Object (mm):").grid(row=0, column=0, sticky="w", pady=2)
+        self.lens_distance_entry = ttk.Entry(pose_grid, textvariable=self.lens_to_object_mm, width=12)
         self.lens_distance_entry.grid(row=0, column=1, sticky="w", padx=(5,0), pady=2)
         
-        ttk.Label(xmp_grid, text="Rail to Horizon (deg):").grid(row=1, column=0, sticky="w", pady=2)
-        self.rail_angle_entry = ttk.Entry(xmp_grid, textvariable=self.rail_to_horizon_deg, width=12)
+        ttk.Label(pose_grid, text="Rail to Horizon (deg):").grid(row=1, column=0, sticky="w", pady=2)
+        self.rail_angle_entry = ttk.Entry(pose_grid, textvariable=self.rail_to_horizon_deg, width=12)
         self.rail_angle_entry.grid(row=1, column=1, sticky="w", padx=(5,0), pady=2)
         
+        ttk.Label(pose_grid, text="Focal Length (35mm eq):").grid(row=2, column=0, sticky="w", pady=2)
+        self.focal_length_entry = ttk.Entry(pose_grid, textvariable=self.focal_length_35mm, width=12)
+        self.focal_length_entry.grid(row=2, column=1, sticky="w", padx=(5,0), pady=2)
+        
+        ttk.Label(pose_grid, text="Position Scale Factor:").grid(row=3, column=0, sticky="w", pady=2)
+        self.position_scale_entry = ttk.Entry(pose_grid, textvariable=self.xmp_position_scale, width=12)
+        self.position_scale_entry.grid(row=3, column=1, sticky="w", padx=(5,0), pady=2)
+        
         # Help text
-        help_text = "Distance: lens entrance pupil to object center\nAngle: positive = camera pitched up, negative = down"
-        ttk.Label(xmp_grid, text=help_text, foreground="#666", justify="left").grid(row=2, column=0, columnspan=2, sticky="w", pady=(5,0))
+        help_text = """Distance: lens entrance pupil to object center
+Angle: positive = camera pitched up, negative = down
+Focal: 35mm equivalent (typical Pi cam: 50-60mm)
+Scale: Multiply positions by this factor (for macro/micro)
+  • 1.0 = no scaling (default for normal photography)
+  • 1000.0 = scale mm to meters (recommended for 100x+ magnification)
+  • Scale final model back down by same factor in RealityCapture"""
+        ttk.Label(pose_grid, text=help_text, foreground="#666", justify="left", font=("TkDefaultFont", 8)).grid(row=4, column=0, columnspan=2, sticky="w", pady=(5,0))
+        
+        # Tab 2: Camera Intrinsics
+        intrinsics_tab = ttk.Frame(xmp_notebook)
+        xmp_notebook.add(intrinsics_tab, text="Intrinsics")
+        
+        intrinsics_grid = ttk.Frame(intrinsics_tab)
+        intrinsics_grid.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(intrinsics_grid, text="Principal Point U:").grid(row=0, column=0, sticky="w", pady=2)
+        self.principal_u_entry = ttk.Entry(intrinsics_grid, textvariable=self.principal_point_u, width=12)
+        self.principal_u_entry.grid(row=0, column=1, sticky="w", padx=(5,0), pady=2)
+        
+        ttk.Label(intrinsics_grid, text="Principal Point V:").grid(row=1, column=0, sticky="w", pady=2)
+        self.principal_v_entry = ttk.Entry(intrinsics_grid, textvariable=self.principal_point_v, width=12)
+        self.principal_v_entry.grid(row=1, column=1, sticky="w", padx=(5,0), pady=2)
+        
+        ttk.Label(intrinsics_grid, text="Aspect Ratio:").grid(row=2, column=0, sticky="w", pady=2)
+        self.aspect_ratio_entry = ttk.Entry(intrinsics_grid, textvariable=self.aspect_ratio, width=12)
+        self.aspect_ratio_entry.grid(row=2, column=1, sticky="w", padx=(5,0), pady=2)
+        
+        ttk.Label(intrinsics_grid, text="Skew:").grid(row=3, column=0, sticky="w", pady=2)
+        self.skew_entry = ttk.Entry(intrinsics_grid, textvariable=self.skew, width=12)
+        self.skew_entry.grid(row=3, column=1, sticky="w", padx=(5,0), pady=2)
+        
+        # Help text
+        help_text2 = "Usually 0,0 for principal point (sensor center)\nAspect ratio typically 1.0, skew typically 0"
+        ttk.Label(intrinsics_grid, text=help_text2, foreground="#666", justify="left", font=("TkDefaultFont", 8)).grid(row=4, column=0, columnspan=2, sticky="w", pady=(5,0))
+        
+        # Tab 3: Distortion Coefficients
+        distortion_tab = ttk.Frame(xmp_notebook)
+        xmp_notebook.add(distortion_tab, text="Distortion")
+        
+        distortion_grid = ttk.Frame(distortion_tab)
+        distortion_grid.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(distortion_grid, text="Radial k1:").grid(row=0, column=0, sticky="w", pady=2)
+        self.k1_entry = ttk.Entry(distortion_grid, textvariable=self.distortion_k1, width=12)
+        self.k1_entry.grid(row=0, column=1, sticky="w", padx=(5,0), pady=2)
+        
+        ttk.Label(distortion_grid, text="Radial k2:").grid(row=1, column=0, sticky="w", pady=2)
+        self.k2_entry = ttk.Entry(distortion_grid, textvariable=self.distortion_k2, width=12)
+        self.k2_entry.grid(row=1, column=1, sticky="w", padx=(5,0), pady=2)
+        
+        ttk.Label(distortion_grid, text="Radial k3:").grid(row=2, column=0, sticky="w", pady=2)
+        self.k3_entry = ttk.Entry(distortion_grid, textvariable=self.distortion_k3, width=12)
+        self.k3_entry.grid(row=2, column=1, sticky="w", padx=(5,0), pady=2)
+        
+        ttk.Label(distortion_grid, text="Tangential p1:").grid(row=3, column=0, sticky="w", pady=2)
+        self.p1_entry = ttk.Entry(distortion_grid, textvariable=self.distortion_p1, width=12)
+        self.p1_entry.grid(row=3, column=1, sticky="w", padx=(5,0), pady=2)
+        
+        ttk.Label(distortion_grid, text="Tangential p2:").grid(row=4, column=0, sticky="w", pady=2)
+        self.p2_entry = ttk.Entry(distortion_grid, textvariable=self.distortion_p2, width=12)
+        self.p2_entry.grid(row=4, column=1, sticky="w", padx=(5,0), pady=2)
+        
+        ttk.Label(distortion_grid, text="Radial k4:").grid(row=5, column=0, sticky="w", pady=2)
+        self.k4_entry = ttk.Entry(distortion_grid, textvariable=self.distortion_k4, width=12)
+        self.k4_entry.grid(row=5, column=1, sticky="w", padx=(5,0), pady=2)
+        
+        # Help text
+        help_text3 = "Brown distortion model coefficients\nUse 0 for all if no distortion data available"
+        ttk.Label(distortion_grid, text=help_text3, foreground="#666", justify="left", font=("TkDefaultFont", 8)).grid(row=6, column=0, columnspan=2, sticky="w", pady=(5,0))
         
         # Calibration progress
         self.calibration_progress_frame = ttk.LabelFrame(right_column, text="Progress Log", padding=10)
@@ -710,13 +971,6 @@ class ScannerGUI(tk.Tk):
         self.progress_label_var = tk.StringVar(value="Ready")
         ttk.Label(self.progress_frame, textvariable=self.progress_label_var).grid(row=1, column=0, sticky="w")
         
-        # Rotation mapping (app-level)
-        self.rotation_map_frame = ttk.LabelFrame(self.capture_tab, text="Rotation Mapping (App)", padding=10)
-        ttk.Label(self.rotation_map_frame, text="Scale (FW° per actual°):").grid(row=0, column=0, sticky="w")
-        ttk.Entry(self.rotation_map_frame, textvariable=self.rotation_scale, width=10).grid(row=0, column=1, sticky="w", padx=(5,0))
-        ttk.Checkbutton(self.rotation_map_frame, text="Reverse CW/CCW", variable=self.rotation_invert).grid(row=0, column=2, sticky="w", padx=(10,0))
-        ttk.Label(self.rotation_map_frame, text="Tip: Command 90° and adjust scale until physical motion is 90°.", foreground="#666").grid(row=1, column=0, columnspan=3, sticky="w", pady=(6,0))
-
         # Capture log
         self.capture_log_frame = ttk.LabelFrame(self.capture_tab, text="Capture Log", padding=10)
         
@@ -729,15 +983,14 @@ class ScannerGUI(tk.Tk):
         self.capture_log_text.config(yscrollcommand=capture_scrollbar.set)
         
         # Layout capture tab
-        self.capture_tab.rowconfigure(5, weight=1)
+        self.capture_tab.rowconfigure(4, weight=1)
         self.capture_tab.columnconfigure(0, weight=1)
         
         self.specimen_frame.grid(row=0, column=0, padx=10, pady=5, sticky="ew")
         self.capture_settings_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
         self.capture_controls_frame.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
         self.progress_frame.grid(row=3, column=0, padx=10, pady=5, sticky="ew")
-        self.rotation_map_frame.grid(row=4, column=0, padx=10, pady=5, sticky="ew")
-        self.capture_log_frame.grid(row=5, column=0, padx=10, pady=5, sticky="nsew")
+        self.capture_log_frame.grid(row=4, column=0, padx=10, pady=5, sticky="nsew")
 
     def _build_camera_settings_tab(self):
         # Camera controls
@@ -927,7 +1180,22 @@ class ScannerGUI(tk.Tk):
         self.columnconfigure(0, weight=1)
         
         self.notebook.grid(row=0, column=0, sticky="nsew", padx=10, pady=5)
-        self.status_bar.grid(row=1, column=0, sticky="ew", padx=10, pady=(5,10))
+        
+        # Status bar with window controls
+        self.status_frame = ttk.Frame(self)
+        self.status_frame.columnconfigure(0, weight=1)
+        
+        self.status_bar.grid(row=0, column=0, sticky="ew", in_=self.status_frame)
+        
+        # Add always-on-top toggle button (starts as pinned)
+        self.topmost_button = ttk.Button(self.status_frame, text="📌", width=3, 
+                                        command=self._toggle_topmost_display)
+        self.topmost_button.grid(row=0, column=1, sticky="e", padx=(5,0))
+        
+        # Update initial status to show window is pinned
+        self.after(100, self._update_initial_status)
+        
+        self.status_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(5,10))
 
     def toggle_preview(self):
         """Toggle camera preview for both manual and calibration tabs"""
@@ -941,11 +1209,16 @@ class ScannerGUI(tk.Tk):
         if not self.preview_on:
             self.start_preview()
             self.btn_preview.config(text="Stop Preview")
-            self.cal_btn_preview.config(text="Stop Preview")
+            if hasattr(self, 'cal_btn_preview'):
+                self.cal_btn_preview.config(text="Stop Preview")
         else:
             self.stop_preview()
             self.btn_preview.config(text="Start Preview")
-            self.cal_btn_preview.config(text="Start Preview")
+            if hasattr(self, 'cal_btn_preview'):
+                self.cal_btn_preview.config(text="Start Preview")
+        
+        # Update manual tab status
+        self._update_manual_status()
 
     def start_preview(self):
         try:
@@ -1175,7 +1448,98 @@ class ScannerGUI(tk.Tk):
         else:
             self.status_var.set("Failed to zero motor 2")
 
+    def _maintain_focus(self):
+        """Periodically maintain window focus to prevent jumping to background."""
+        if self._focus_maintenance_active:
+            try:
+                # Only maintain if window still exists and is visible
+                if self.winfo_exists():
+                    # Don't interfere if user is interacting with other windows
+                    # Just ensure our window stays accessible
+                    pass
+            except:
+                pass
+            # Schedule next maintenance check
+            self.after(1000, self._maintain_focus)
+
+    def _on_window_click(self, event):
+        """Handle window clicks - ensure window stays in front."""
+        # Don't do anything aggressive on click - user clicked intentionally
+        pass
+
+    def _on_focus_lost(self, event):
+        """Handle when window loses focus."""
+        # Allow normal focus loss - don't fight the window manager too much
+        pass
+
+    def bring_to_front(self):
+        """Programmatically bring window to front and focus it."""
+        try:
+            self.lift()
+            self.focus_force()
+        except:
+            pass
+    
+    def toggle_always_on_top(self):
+        """Toggle the always-on-top behavior."""
+        try:
+            current_topmost = self.wm_attributes('-topmost')
+            self.wm_attributes('-topmost', not current_topmost)
+            return not current_topmost
+        except:
+            return False
+
+    def _update_initial_status(self):
+        """Update status to show initial pinned state."""
+        try:
+            current_status = self.status_var.get()
+            if "pinned on top" not in current_status:
+                self.status_var.set(current_status + " | Window pinned on top")
+        except:
+            pass
+
+    def _toggle_topmost_display(self):
+        """Toggle topmost and update button display."""
+        try:
+            new_state = self.toggle_always_on_top()
+            # Update button appearance
+            if new_state:
+                self.topmost_button.configure(text="📌")
+                current_status = self.status_var.get().replace(" | Window pinned on top", "")
+                self.status_var.set(current_status + " | Window pinned on top")
+            else:
+                self.topmost_button.configure(text="📍")  
+                current_status = self.status_var.get().replace(" | Window pinned on top", "")
+                self.status_var.set(current_status)
+        except:
+            pass
+    
+    def _update_manual_status(self):
+        """Update status displays on the manual control tab."""
+        try:
+            # Update Arduino status
+            if hasattr(self, 'ser') and self.ser is not None:
+                self.arduino_status_var.set("Connected")
+            else:
+                self.arduino_status_var.set("Not Connected")
+            
+            # Update camera status
+            if hasattr(self, 'preview_on') and self.preview_on:
+                self.camera_status_var.set("Preview Active")
+            elif hasattr(self, 'camera') and self.camera is not None:
+                self.camera_status_var.set("Ready")
+            else:
+                self.camera_status_var.set("Not Initialized")
+        except AttributeError:
+            # Variables not yet created during initialization
+            pass
+        except Exception:
+            pass
+
     def on_close(self):
+        # Stop focus maintenance
+        self._focus_maintenance_active = False
+        
         # Save settings one last time
         try:
             self._save_app_settings()
@@ -1201,6 +1565,12 @@ class ScannerGUI(tk.Tk):
                 self.ser.close()
             except:
                 pass
+        
+        # Release window grab before destroying
+        try:
+            self.grab_release()
+        except:
+            pass
         
         self.destroy()
 
@@ -1407,6 +1777,18 @@ class ScannerGUI(tk.Tk):
         # Reset XMP settings to defaults
         self.lens_to_object_mm.set(250.0)
         self.rail_to_horizon_deg.set(0.0)
+        self.focal_length_35mm.set(50.0)
+        self.xmp_position_scale.set(1.0)
+        self.principal_point_u.set(0.0)
+        self.principal_point_v.set(0.0)
+        self.aspect_ratio.set(1.0)
+        self.skew.set(0.0)
+        self.distortion_k1.set(0.0)
+        self.distortion_k2.set(0.0)
+        self.distortion_k3.set(0.0)
+        self.distortion_p1.set(0.0)
+        self.distortion_p2.set(0.0)
+        self.distortion_k4.set(0.0)
 
         # Update status label color back to red
         for widget in self.calibration_status_frame.winfo_children():
@@ -1437,7 +1819,7 @@ class ScannerGUI(tk.Tk):
         File Format:
             JSON structure: {
                 "focus_positions": {angle: {"near": mm_pos, "far": mm_pos}, ...},
-                "xmp_settings": {"lens_to_object_mm": float, "rail_to_horizon_deg": float}
+                "xmp_settings": {pose and camera calibration parameters}
             }
         """
         filename = filedialog.asksaveasfilename(
@@ -1448,12 +1830,28 @@ class ScannerGUI(tk.Tk):
         
         if filename:
             try:
-                # Prepare calibration data with XMP settings
+                # Prepare calibration data with all XMP and camera settings
                 cal_data = {
                     "focus_positions": self.calibration_data,
                     "xmp_settings": {
+                        # Pose settings
                         "lens_to_object_mm": float(self.lens_to_object_mm.get()),
-                        "rail_to_horizon_deg": float(self.rail_to_horizon_deg.get())
+                        "rail_to_horizon_deg": float(self.rail_to_horizon_deg.get()),
+                        "focal_length_35mm": float(self.focal_length_35mm.get()),
+                        "xmp_position_scale": float(self.xmp_position_scale.get()),
+                        # Intrinsics
+                        "principal_point_u": float(self.principal_point_u.get()),
+                        "principal_point_v": float(self.principal_point_v.get()),
+                        "aspect_ratio": float(self.aspect_ratio.get()),
+                        "skew": float(self.skew.get()),
+                        # Distortion
+                        "distortion_model": str(self.distortion_model.get()),
+                        "distortion_k1": float(self.distortion_k1.get()),
+                        "distortion_k2": float(self.distortion_k2.get()),
+                        "distortion_k3": float(self.distortion_k3.get()),
+                        "distortion_p1": float(self.distortion_p1.get()),
+                        "distortion_p2": float(self.distortion_p2.get()),
+                        "distortion_k4": float(self.distortion_k4.get())
                     }
                 }
                 
@@ -1493,10 +1891,39 @@ class ScannerGUI(tk.Tk):
                     # Load XMP settings if present
                     if "xmp_settings" in loaded:
                         xmp_settings = loaded["xmp_settings"]
+                        # Pose settings
                         if "lens_to_object_mm" in xmp_settings:
                             self.lens_to_object_mm.set(float(xmp_settings["lens_to_object_mm"]))
                         if "rail_to_horizon_deg" in xmp_settings:
                             self.rail_to_horizon_deg.set(float(xmp_settings["rail_to_horizon_deg"]))
+                        if "focal_length_35mm" in xmp_settings:
+                            self.focal_length_35mm.set(float(xmp_settings["focal_length_35mm"]))
+                        if "xmp_position_scale" in xmp_settings:
+                            self.xmp_position_scale.set(float(xmp_settings["xmp_position_scale"]))
+                        # Intrinsics
+                        if "principal_point_u" in xmp_settings:
+                            self.principal_point_u.set(float(xmp_settings["principal_point_u"]))
+                        if "principal_point_v" in xmp_settings:
+                            self.principal_point_v.set(float(xmp_settings["principal_point_v"]))
+                        if "aspect_ratio" in xmp_settings:
+                            self.aspect_ratio.set(float(xmp_settings["aspect_ratio"]))
+                        if "skew" in xmp_settings:
+                            self.skew.set(float(xmp_settings["skew"]))
+                        # Distortion
+                        if "distortion_model" in xmp_settings:
+                            self.distortion_model.set(str(xmp_settings["distortion_model"]))
+                        if "distortion_k1" in xmp_settings:
+                            self.distortion_k1.set(float(xmp_settings["distortion_k1"]))
+                        if "distortion_k2" in xmp_settings:
+                            self.distortion_k2.set(float(xmp_settings["distortion_k2"]))
+                        if "distortion_k3" in xmp_settings:
+                            self.distortion_k3.set(float(xmp_settings["distortion_k3"]))
+                        if "distortion_p1" in xmp_settings:
+                            self.distortion_p1.set(float(xmp_settings["distortion_p1"]))
+                        if "distortion_p2" in xmp_settings:
+                            self.distortion_p2.set(float(xmp_settings["distortion_p2"]))
+                        if "distortion_k4" in xmp_settings:
+                            self.distortion_k4.set(float(xmp_settings["distortion_k4"]))
                 else:
                     # Old format (direct angle mapping) - maintain compatibility
                     self.calibration_data = self._normalize_calibration_data(loaded)
@@ -1850,7 +2277,7 @@ class ScannerGUI(tk.Tk):
                 "xmp_consolidation": {
                     "enabled": True,
                     "directory": "xmp_files",
-                    "naming_pattern": "perspective_{perspective:02d}_angle_{angle:06.2f}.xmp"
+                    "naming_pattern": "stack_{perspective:02d}.xmp"
                 }
             }
             
@@ -1938,9 +2365,33 @@ class ScannerGUI(tk.Tk):
                     stack_xmp_filename = f"stack_{perspective:02d}_angle_{angle:06.2f}.xmp"
                     stack_xmp_path = os.path.join(stack_dir, stack_xmp_filename)
                     
-                    # Write XMP with pose data
-                    write_xmp_sidecar(stack_xmp_path.replace('.xmp', '.jpg'), pose, 
-                                    lens_dist, rail_angle, angle, perspective)
+                    # Gather distortion coefficients
+                    distortion_coeffs = (
+                        self.distortion_k1.get(),
+                        self.distortion_k2.get(),
+                        self.distortion_k3.get(),
+                        self.distortion_p1.get(),
+                        self.distortion_p2.get(),
+                        self.distortion_k4.get()
+                    )
+                    
+                    # Write XMP with pose data and camera calibration
+                    write_xmp_sidecar(
+                        stack_xmp_path.replace('.xmp', '.jpg'), 
+                        pose, 
+                        lens_dist, 
+                        rail_angle, 
+                        angle, 
+                        perspective,
+                        focal_length_35mm=self.focal_length_35mm.get(),
+                        distortion_model=self.distortion_model.get(),
+                        skew=self.skew.get(),
+                        aspect_ratio=self.aspect_ratio.get(),
+                        principal_point_u=self.principal_point_u.get(),
+                        principal_point_v=self.principal_point_v.get(),
+                        distortion_coefficients=distortion_coeffs,
+                        position_scale=self.xmp_position_scale.get()
+                    )
                     
                     self.after(0, self.log_capture, f"Generated XMP for stack {perspective} at {angle:.2f}°")
                     
@@ -1965,8 +2416,8 @@ class ScannerGUI(tk.Tk):
                         source_xmp = os.path.join(stack_dir, xmp_filename)
                         
                         if os.path.exists(source_xmp):
-                            # Create consolidated filename for RealityCapture import
-                            consolidated_filename = f"perspective_{perspective:02d}_angle_{angle:06.2f}.xmp"
+                            # Create consolidated filename matching stack directory naming exactly
+                            consolidated_filename = f"stack_{perspective:02d}.xmp"
                             dest_xmp = os.path.join(xmp_dir, consolidated_filename)
                             
                             # Copy XMP file

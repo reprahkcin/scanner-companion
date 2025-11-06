@@ -61,9 +61,9 @@ specimen_name/
     README.md             # ← Workflow guide for this session
     rename_xmp_for_rc.py  # ← Helper script (portable!)
     xmp_files/            # ← Consolidated XMP directory
-      perspective_00_angle_000.00.xmp
-      perspective_01_angle_005.00.xmp
-      perspective_02_angle_010.00.xmp
+      stack_00.xmp
+      stack_01.xmp
+      stack_02.xmp
       ...
     stack_00/
       stack_00_shot_000_angle_000.00.jpg
@@ -112,13 +112,6 @@ python rename_xmp_for_rc.py . "scan_{angle:06.2f}.xmp"
 2. **Enable camera priors** in Alignment settings  
 3. **Increase prior hardness** (Position and Orientation) to respect calculated poses
 4. **Run alignment** - cameras should form a perfect ring!
-
-## Testing
-
-Run the test suite to verify everything works:
-```bash
-python tests/test_xmp_feature.py
-```
 
 ## Coordinate System
 
