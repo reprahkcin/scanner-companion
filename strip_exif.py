@@ -2,19 +2,16 @@
 """
 EXIF Data Stripper Utility
 
-This script removes all EXIF metadata from image files in the current directory
-or a specified directory. Useful for cleaning images before uploading or when
-metadata causes issues with processing software.
-
-Usage:
-    python strip_exif.py                    # Process current directory
-    python strip_exif.py /path/to/images    # Process specific directory
-    python strip_exif.py --recursive        # Process current directory recursively
-    python strip_exif.py /path --recursive  # Process specific directory recursively
+This script removes all EXIF metadata from image files in the current directory.
+Just place this script in the folder with your images and double-click it or run:
+    ./strip_exif.py
 
 Supported formats: JPG, JPEG, PNG, TIFF, TIF
 
 The script creates backup files with .original extension before stripping EXIF data.
+You can also use command line options:
+    ./strip_exif.py --recursive    # Include subdirectories
+    ./strip_exif.py --no-backup    # Don't create backup files
 """
 
 import os
@@ -72,13 +69,14 @@ def strip_exif_from_image(image_path: Path, create_backup: bool = True) -> bool:
         return False
 
 
-def process_directory(directory: Path, recursive: bool = False) -> tuple[int, int]:
+def process_directory(directory: Path, recursive: bool = False, create_backup: bool = True) -> tuple[int, int]:
     """
     Process all images in a directory.
     
     Args:
         directory: Directory path to process
         recursive: Whether to process subdirectories recursively
+        create_backup: Whether to create backup files
         
     Returns:
         Tuple of (successful_count, failed_count)
@@ -107,7 +105,7 @@ def process_directory(directory: Path, recursive: bool = False) -> tuple[int, in
     # Process each image
     for image_file in sorted(image_files):
         print(f"Processing: {image_file.relative_to(directory)}")
-        if strip_exif_from_image(image_file):
+        if strip_exif_from_image(image_file, create_backup):
             success_count += 1
         else:
             fail_count += 1
@@ -120,23 +118,16 @@ def main():
     """Main entry point for the script."""
     # Parse command line arguments
     args = sys.argv[1:]
-    directory = Path.cwd()
+    directory = Path.cwd()  # Always use current directory
     recursive = False
+    create_backup = True
     
-    # Check for --recursive flag
+    # Check for flags
     if '--recursive' in args or '-r' in args:
         recursive = True
-        args = [arg for arg in args if arg not in ('--recursive', '-r')]
     
-    # Get directory path if provided
-    if args:
-        directory = Path(args[0])
-        if not directory.exists():
-            print(f"Error: Directory '{directory}' does not exist")
-            sys.exit(1)
-        if not directory.is_dir():
-            print(f"Error: '{directory}' is not a directory")
-            sys.exit(1)
+    if '--no-backup' in args:
+        create_backup = False
     
     # Display configuration
     print("=" * 60)
@@ -144,6 +135,7 @@ def main():
     print("=" * 60)
     print(f"Directory: {directory.absolute()}")
     print(f"Recursive: {'Yes' if recursive else 'No'}")
+    print(f"Create backups: {'Yes' if create_backup else 'No'}")
     print(f"Supported formats: {', '.join(sorted(IMAGE_EXTENSIONS))}")
     print("=" * 60)
     
@@ -158,7 +150,7 @@ def main():
         sys.exit(0)
     
     # Process images
-    success_count, fail_count = process_directory(directory, recursive)
+    success_count, fail_count = process_directory(directory, recursive, create_backup)
     
     # Display results
     print("=" * 60)
@@ -170,7 +162,8 @@ def main():
     
     if success_count > 0:
         print("\n✓ EXIF data has been stripped from images")
-        print("  Original files backed up with .original extension")
+        if create_backup:
+            print("  Original files backed up with .original extension")
     
     if fail_count > 0:
         sys.exit(1)
