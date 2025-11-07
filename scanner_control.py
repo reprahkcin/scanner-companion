@@ -170,11 +170,9 @@ def write_xmp_sidecar(img_path: str, pose: RigPose,
     """
     XCR_NS = 'http://www.capturingreality.com/ns/xcr/1.1#'
     
-    # Apply position scaling (for macro/micro work with very small distances)
-    x, y, z = pose.pos_m
-    x_scaled = x * position_scale
-    y_scaled = y * position_scale
-    z_scaled = z * position_scale
+    # NOTE: In RealityCapture's XMP format, Position is the LOOK-AT point (target),
+    # not the camera location. The camera location is encoded in the rotation matrix.
+    # For a ring of cameras looking at origin, Position should always be (0,0,0).
     
     R = pose.R_rowmajor
     
@@ -204,7 +202,7 @@ def write_xmp_sidecar(img_path: str, pose: RigPose,
             xcr:DistortionGroup="{distortion_group}"
             xcr:InTexturing="{in_texturing}"
             xcr:InMeshing="{in_meshing}">
-            <xcr:Position>{x_scaled} {y_scaled} {z_scaled}</xcr:Position>
+            <xcr:Position>0.0 0.0 0.0</xcr:Position>
         </rdf:Description>
     </rdf:RDF>
 </x:xmpmeta>'''
