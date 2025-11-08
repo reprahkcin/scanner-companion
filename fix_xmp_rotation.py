@@ -37,45 +37,63 @@ def parse_xmp_file(filepath):
     return position, rotation, content
 
 
-def calculate_lookat_rotation(camera_pos, target=(0.0, 0.0, 0.0), up=(0.0, 0.0, 1.0)):
+def calculate_lookat_rotation(camera_pos, target_pos, world_up):
     """
-    Calculate rotation matrix for camera at camera_pos looking at target.
+    Calculate rotation matrix for camera at camera_pos looking at target_pos.
     
-    Returns rotation matrix as 9-tuple in row-major order for RealityCapture.
-    Uses standard world-to-camera rotation.
+    Per RealityCapture documentation:
+    x = [R t] * X
+    where R transforms world coordinates to camera coordinates.
+    
+    Camera coordinate system (standard computer vision):
+    - +X right
+    - +Y down
+    - +Z forward (looking direction)
+    
+    Args:
+        camera_pos: tuple (x, y, z) - camera position in world coordinates
+        target_pos: tuple (x, y, z) - point camera is looking at
+        world_up: tuple (x, y, z) - world up vector (usually (0, 0, 1) for Z-up)
+    
+    Returns:
+        tuple of 9 floats - rotation matrix in row-major order
     """
-    x, y, z = camera_pos
+    import math
     
-    def vsub(a, b): 
-        return (a[0]-b[0], a[1]-b[1], a[2]-b[2])
+    # Convert to arrays for easier math
+    cam = camera_pos
+    tgt = target_pos
+    up = world_up
     
-    def vdot(a, b): 
-        return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
+    # Calculate forward direction in world space (from camera toward target)
+    fx = tgt[0] - cam[0]
+    fy = tgt[1] - cam[1]
+    fz = tgt[2] - cam[2]
+    f_len = math.sqrt(fx*fx + fy*fy + fz*fz)
+    fwd_world = (fx/f_len, fy/f_len, fz/f_len)
     
-    def vcross(a, b): 
-        return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
+    # Calculate right direction in world space (cross product of forward and world up)
+    rx = fwd_world[1]*up[2] - fwd_world[2]*up[1]
+    ry = fwd_world[2]*up[0] - fwd_world[0]*up[2]
+    rz = fwd_world[0]*up[1] - fwd_world[1]*up[0]
+    r_len = math.sqrt(rx*rx + ry*ry + rz*rz)
+    right_world = (rx/r_len, ry/r_len, rz/r_len)
     
-    def vnorm(a):
-        m = math.sqrt(vdot(a, a))
-        return (a[0]/m, a[1]/m, a[2]/m) if m > 0 else (0, 0, 1)
+    # Calculate camera up direction in world space (cross product of right and forward)
+    ux = right_world[1]*fwd_world[2] - right_world[2]*fwd_world[1]
+    uy = right_world[2]*fwd_world[0] - right_world[0]*fwd_world[2]
+    uz = right_world[0]*fwd_world[1] - right_world[1]*fwd_world[0]
+    up_world = (ux, uy, uz)
     
-    # Forward: from camera toward target
-    f = vnorm(vsub(target, camera_pos))
-    
-    # Handle gimbal lock when camera directly above/below target
-    if abs(f[0]) < 1e-6 and abs(f[1]) < 1e-6:
-        rgt = (1.0, 0.0, 0.0)
-    else:
-        rgt = vnorm(vcross(f, up))
-    
-    up_vec = vnorm(vcross(rgt, f))
-    
-    # World-to-camera rotation matrix
-    # Rows are camera axes (right, down, forward) expressed in world coordinates
+    # Build rotation matrix R that transforms world coords to camera coords
+    # Each row of R represents where a camera axis points in world coordinates:
+    # Row 0: camera X-axis (right) in world coords
+    # Row 1: camera Y-axis (down, so negate up) in world coords  
+    # Row 2: camera Z-axis (forward) in world coords
     R = (
-        rgt[0], rgt[1], rgt[2],              # Camera X (right) in world
-        -up_vec[0], -up_vec[1], -up_vec[2],  # Camera Y (down) in world
-        f[0], f[1], f[2]                     # Camera Z (forward) in world
+        right_world[0], right_world[1], right_world[2],
+        -up_world[0], -up_world[1], -up_world[2],
+        fwd_world[0], fwd_world[1], fwd_world[2]
     )
     
     return R
@@ -109,7 +127,14 @@ def update_xmp_rotation(filepath, new_rotation, new_position=(0.0, 0.0, 0.0)):
 
 def fix_xmp_directory(directory):
     """Process all XMP files in directory."""
-    xmp_files = sorted(Path(directory).glob('*.xmp'))
+    import re
+    
+    # Natural sort key to handle numeric filenames correctly
+    def natural_sort_key(path):
+        return [int(text) if text.isdigit() else text.lower() 
+                for text in re.split(r'(\d+)', str(path.name))]
+    
+    xmp_files = sorted(Path(directory).glob('*.xmp'), key=natural_sort_key)
     
     if not xmp_files:
         print(f"No XMP files found in {directory}")
@@ -118,28 +143,39 @@ def fix_xmp_directory(directory):
     print(f"Found {len(xmp_files)} XMP files")
     print("Processing...")
     
+    # Configuration: assume 128 images in a 360° circle
+    total_files = len(xmp_files)
+    distance_mm = 4900.0  # Camera distance from origin
+    
     fixed_count = 0
-    for xmp_file in xmp_files:
-        position, old_rotation, content = parse_xmp_file(xmp_file)
+    for i, xmp_file in enumerate(xmp_files):
+        # Calculate camera position based on index
+        # Cameras arranged in horizontal circle (XY plane)
+        theta_deg = (i / total_files) * 360.0
+        theta_rad = math.radians(theta_deg)
         
-        if position is None:
-            print(f"Warning: Could not parse position from {xmp_file.name}")
-            continue
+        r = distance_mm  # Keep in millimeters for XMP
+        x = r * math.cos(theta_rad)
+        y = r * math.sin(theta_rad)
+        z = 0.0  # Horizontal circle
         
-        # The position in the XMP is actually where the camera IS (on the circle)
+        camera_position_mm = (x, y, z)
+        camera_position_m = (x/1000.0, y/1000.0, z/1000.0)
+        
         # Calculate rotation for this camera position looking at origin
-        new_rotation = calculate_lookat_rotation(position, target=(0.0, 0.0, 0.0))
+        world_up = (0.0, 0.0, 1.0)  # Z-up world
+        new_rotation = calculate_lookat_rotation(camera_position_m, (0.0, 0.0, 0.0), world_up)
         
-        # Update file: set Position to origin (look-at point) and update rotation
-        update_xmp_rotation(xmp_file, new_rotation, new_position=(0.0, 0.0, 0.0))
+        # Update file: Position is camera location, rotation makes it look at origin
+        update_xmp_rotation(xmp_file, new_rotation, new_position=camera_position_mm)
         fixed_count += 1
         
         if fixed_count % 10 == 0:
             print(f"  Processed {fixed_count} files...")
     
     print(f"\nSuccessfully updated {fixed_count} XMP files")
-    print("Position set to (0,0,0) - the look-at point")
-    print("Cameras now positioned on circle via rotation matrix")
+    print("Position set to camera locations on horizontal circle (XY plane)")
+    print("Rotation matrices orient cameras to look at origin with tops pointing +Z")
 
 
 if __name__ == "__main__":
