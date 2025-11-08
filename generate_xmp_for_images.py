@@ -70,11 +70,13 @@ def build_rotation_matrix(C, L, U):
     # True up
     u = cross(s, f)
     
-    # Row 1 = -s AND Row 2 = -u to flip model upright (180° roll)
-    # Row 3 = -f (cameras face inward) ✓ WORKING IN TEST 8
+    # CORRECT rotation matrix (matches working generate_circle_xmp.py)
+    # Row 1 = +s (right vector)
+    # Row 2 = +u (up vector)
+    # Row 3 = -f (cameras face inward)
     R = (
-        -s[0], -s[1], -s[2],
-        -u[0], -u[1], -u[2],
+        s[0], s[1], s[2],
+        u[0], u[1], u[2],
         -f[0], -f[1], -f[2]
     )
     
@@ -108,8 +110,8 @@ def generate_xmps_for_images(image_dir, radius_m=4.9):
     
     for i, img_file in enumerate(image_files):
         # Calculate angle for this camera
-        # NEGATIVE angle because object rotated CCW (turntable), not camera rotating CW
-        theta_deg = -(i / num_images) * 360.0
+        # POSITIVE angle to match scanner_control.py: angle = perspective * angle_step
+        theta_deg = (i / num_images) * 360.0
         theta_rad = math.radians(theta_deg)
         
         # Use base radius only - no adjustments

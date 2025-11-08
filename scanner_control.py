@@ -110,10 +110,12 @@ def ring_pose(distance_mm: float, rail_deg: float, theta_deg: float) -> RigPose:
     
     up = vnorm(vcross(rgt, f))  # Up
 
-    # Test 8 matrix: R = [-s, -u, -f] (negate all rows)
-    # This makes cameras face inward correctly
-    R9 = (-rgt[0], -rgt[1], -rgt[2],
-          -up[0], -up[1], -up[2],
+    # CORRECT rotation matrix (matches working generate_circle_xmp.py)
+    # Row 1 = +s (right vector)
+    # Row 2 = +u (up vector)
+    # Row 3 = -f (cameras face inward)
+    R9 = (rgt[0], rgt[1], rgt[2],
+          up[0], up[1], up[2],
           -f[0], -f[1], -f[2])
     
     return RigPose((x, y, z), R9)
