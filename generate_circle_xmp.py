@@ -73,8 +73,9 @@ def build_rotation_matrix(C, L, U):
     Returns:
         Tuple of 9 floats (row-major rotation matrix)
     """
-    # Step 1: Forward (camera viewing direction)
-    f = normalize((L[0] - C[0], L[1] - C[1], L[2] - C[2]))
+    # Step 1: Forward vector - FLIPPED from manual to point outward
+    # f now points FROM origin TO camera (outward)
+    f = normalize((C[0] - L[0], C[1] - L[1], C[2] - L[2]))
     
     # Step 2: Right vector
     s = normalize(cross(f, U))
@@ -82,10 +83,7 @@ def build_rotation_matrix(C, L, U):
     # Step 3: True up
     u = cross(s, f)
     
-    # Build rotation matrix per manual: R transforms world to camera
-    # Row 1: s.x  s.y  s.z
-    # Row 2: u.x  u.y  u.z
-    # Row 3: -f.x -f.y -f.z
+    # Revert to Test 3 working state: Row 2 = +u, Row 3 = -f
     R = (
         s[0], s[1], s[2],
         u[0], u[1], u[2],
@@ -128,14 +126,14 @@ def generate_circle_xmps(output_dir, num_cameras=128, radius_m=0.3):
         # Create XMP content
         xmp_content = create_xmp_content(C, R)
         
-        # Write file
-        filename = f"stack_{i:02d}.xmp"
+        # Write file with 3-digit padding for proper sorting
+        filename = f"stack_{i:03d}.xmp"
         filepath = os.path.join(output_dir, filename)
         with open(filepath, 'w') as f:
             f.write(xmp_content)
         
-        if i % 10 == 0:
-            print(f"Generated {filename}: camera at ({C[0]:.3f}, {C[1]:.3f}, {C[2]:.3f})")
+        if i < 5 or i % 32 == 0:
+            print(f"[{i:3d}] {filename}: angle={theta_deg:6.1f}° pos=({C[0]:6.3f}, {C[1]:6.3f}, {C[2]:6.3f})")
     
     print(f"\nGenerated {num_cameras} XMP files in {output_dir}")
     print(f"Cameras on circle at radius {radius_m}m")
