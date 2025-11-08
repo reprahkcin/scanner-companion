@@ -71,7 +71,7 @@ def build_rotation_matrix(C, L, U):
     u = cross(s, f)
     
     # Row 1 = -s AND Row 2 = -u to flip model upright (180° roll)
-    # Row 3 = -f (cameras face inward) ✓ WORKING
+    # Row 3 = -f (cameras face inward) ✓ WORKING IN TEST 8
     R = (
         -s[0], -s[1], -s[2],
         -u[0], -u[1], -u[2],

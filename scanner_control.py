@@ -97,8 +97,9 @@ def ring_pose(distance_mm: float, rail_deg: float, theta_deg: float) -> RigPose:
         m = math.sqrt(vdot(a, a))
         return (a[0]/m, a[1]/m, a[2]/m) if m > 0 else (0, 0, 1)
 
-    # Camera axes: forward points from camera to target
-    f = vnorm(vsub(tgt, C))  # Forward (toward object)
+    # TEST 8 WORKING CONFIGURATION:
+    # f points FROM origin TO camera (outward)
+    f = vnorm(vsub(C, tgt))  # Outward vector
     
     # Handle gimbal lock when camera is directly above/below
     if abs(f[0]) < 1e-6 and abs(f[1]) < 1e-6:
@@ -107,19 +108,13 @@ def ring_pose(distance_mm: float, rail_deg: float, theta_deg: float) -> RigPose:
     else:
         rgt = vnorm(vcross(f, upW))  # Right
     
-    up = vnorm(vcross(rgt, f))  # Up (normalized for numerical stability)
+    up = vnorm(vcross(rgt, f))  # Up
 
-    # RealityCapture uses standard photogrammetry convention:
-    # World-to-camera rotation matrix with +Z forward, +Y down (OpenCV style)
-    # Rows represent camera axes in world coordinates
-    Rw2c = ((rgt[0], rgt[1], rgt[2]),      # Camera X-axis (right) in world
-            (-up[0], -up[1], -up[2]),       # Camera Y-axis (down) in world
-            (f[0], f[1], f[2]))             # Camera Z-axis (forward) in world
-
-    # Serialize to 9 numbers in row-major order
-    R9 = (Rw2c[0][0], Rw2c[0][1], Rw2c[0][2],
-          Rw2c[1][0], Rw2c[1][1], Rw2c[1][2],
-          Rw2c[2][0], Rw2c[2][1], Rw2c[2][2])
+    # Test 8 matrix: R = [-s, -u, -f] (negate all rows)
+    # This makes cameras face inward correctly
+    R9 = (-rgt[0], -rgt[1], -rgt[2],
+          -up[0], -up[1], -up[2],
+          -f[0], -f[1], -f[2])
     
     return RigPose((x, y, z), R9)
 
@@ -2381,7 +2376,7 @@ appear much larger than the camera circle. Scale the final
                     time.sleep(self.settle_delay.get())
 
                     # Capture
-                    filename = f"stack_{perspective:02d}_shot_{slice_idx:03d}_angle_{angle:06.2f}.{self.image_format.get().lower()}"
+                    filename = f"stack_{perspective:02d}_shot_{slice_idx:04d}_angle_{angle:06.2f}.{self.image_format.get().lower()}"
                     filepath = os.path.join(stack_dir, filename)
                     self.capture_image(filepath)
 
