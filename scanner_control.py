@@ -88,7 +88,7 @@ def ring_pose(distance_mm: float, rail_deg: float, theta_deg: float) -> RigPose:
     # Build a "look-at origin" rotation matrix
     C = (x, y, z)
     tgt = (0.0, 0.0, 0.0)  # Looking at object center
-    upW = (0.0, 0.0, 1.0)  # World up vector
+    upW = (0.0, 0.0, 1.0)  # World up vector (Z-axis is up)
 
     def vsub(a, b): return (a[0]-b[0], a[1]-b[1], a[2]-b[2])
     def vdot(a, b): return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]
@@ -170,9 +170,15 @@ def write_xmp_sidecar(img_path: str, pose: RigPose,
     """
     XCR_NS = 'http://www.capturingreality.com/ns/xcr/1.1#'
     
-    # NOTE: In RealityCapture's XMP format, Position is the LOOK-AT point (target),
-    # not the camera location. The camera location is encoded in the rotation matrix.
-    # For a ring of cameras looking at origin, Position should always be (0,0,0).
+    # Per RealityCapture documentation: Position is the CAMERA location in world coordinates
+    # The rotation matrix R transforms world coordinates to camera coordinates
+    # See: https://dev.epicgames.com/community/learning/knowledge-base/vzwB/realityscan-realitycapture-xmp-camera-math
+    
+    # Camera position in world coordinates (meters)
+    P = pose.pos_m
+    
+    # Apply position scale (e.g., 1000 for millimeters in macro photography)
+    position_str = f"{P[0] * position_scale} {P[1] * position_scale} {P[2] * position_scale}"
     
     R = pose.R_rowmajor
     
@@ -202,7 +208,7 @@ def write_xmp_sidecar(img_path: str, pose: RigPose,
             xcr:DistortionGroup="{distortion_group}"
             xcr:InTexturing="{in_texturing}"
             xcr:InMeshing="{in_meshing}">
-            <xcr:Position>0.0 0.0 0.0</xcr:Position>
+            <xcr:Position>{position_str}</xcr:Position>
         </rdf:Description>
     </rdf:RDF>
 </x:xmpmeta>'''
