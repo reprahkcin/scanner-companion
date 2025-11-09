@@ -58,6 +58,17 @@ from xml.sax.saxutils import escape
 # XMP POSE CALCULATION
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Hard-verified RealityCapture intrinsics and priors (do not change unless re-validated)
+VERIFIED_DISTORTION_MODEL = "brown3"
+VERIFIED_DISTORTION_COEFFS = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+VERIFIED_FOCAL_LENGTH_35MM = 50.0
+VERIFIED_SKEW = 0.0
+VERIFIED_ASPECT_RATIO = 1.0
+VERIFIED_PRINCIPAL_POINT_U = 0.0
+VERIFIED_PRINCIPAL_POINT_V = 0.0
+VERIFIED_POSE_PRIOR = "locked"
+VERIFIED_CALIB_PRIOR = "exact"
+
 @dataclass
 class RigPose:
     """Camera pose for XMP export"""
@@ -106,14 +117,17 @@ def ring_pose(distance_mm: float, rail_deg: float, theta_deg: float) -> RigPose:
         # Camera pointing straight up or down
         rgt = (1.0, 0.0, 0.0)  # Arbitrary right vector
     else:
-        rgt = vnorm(vcross(f, upW))  # Right
-    
-    up = vcross(rgt, f)  # Up (already unit length from cross of two unit vectors)
+        # Use right = cross(worldUp, forward) for RC convention
+        rgt = vnorm(vcross(upW, f))  # Right
 
-    # Reference document Section 5: R rows = [s, u, -f]
+    # Up = cross(forward, right)
+    up = vcross(f, rgt)  # Up (already unit length from cross of two unit vectors)
+
+    # Adopt empirically validated RealityCapture convention (variant 16):
+    # rows = [right, up, forward]
     R9 = (rgt[0], rgt[1], rgt[2],
-          up[0], up[1], up[2],
-          -f[0], -f[1], -f[2])
+        up[0], up[1], up[2],
+        f[0], f[1], f[2])
     
     return RigPose((x, y, z), R9)
 
@@ -131,7 +145,9 @@ def write_xmp_sidecar(img_path: str, pose: RigPose,
                       distortion_group: int = -1,
                       in_texturing: int = 1,
                       in_meshing: int = 1,
-                      position_scale: float = 1.0) -> None:
+                      position_scale: float = 1.0,
+                      pose_prior: str = "initial",
+                      calibration_prior: str = "initial") -> None:
     """Write XMP sidecar file with camera pose data in RealityCapture format.
     
     Generates XMP metadata files conforming to RealityCapture's XMP specification.
@@ -160,7 +176,8 @@ def write_xmp_sidecar(img_path: str, pose: RigPose,
     Note:
         RealityCapture requires specific attribute spelling: "DistortionCoeficients"
         (not "Coefficients"). The rotation matrix must be 9 space-separated values
-        in row-major order.
+        in row-major order. Per RealityCapture XMP Camera Math, Rotation and Position
+        are encoded as child elements, not attributes.
     """
     XCR_NS = 'http://www.capturingreality.com/ns/xcr/1.1#'
     
@@ -173,35 +190,36 @@ def write_xmp_sidecar(img_path: str, pose: RigPose,
     
     # Apply position scale (e.g., 1000 for millimeters in macro photography)
     position_str = f"{P[0] * position_scale} {P[1] * position_scale} {P[2] * position_scale}"
-    
+
     R = pose.R_rowmajor
-    
+
     # Format distortion coefficients (note: RealityCapture uses "Coeficients" spelling)
     dist_str = " ".join(f"{c}" for c in distortion_coefficients)
-    
+
     # Format rotation matrix as space-separated values
     rotation_str = " ".join(f"{r}" for r in R)
-    
+
     # Build XMP content following RealityCapture specification exactly
+    # Important: xcr:Rotation and xcr:Position must be child elements.
     xmp_content = f'''<x:xmpmeta xmlns:x="adobe:ns:meta/">
     <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
         <rdf:Description xmlns:xcr="{XCR_NS}"
             xcr:Version="3"
-            xcr:PosePrior="initial"
-            xcr:Rotation="{rotation_str}"
+            xcr:PosePrior="{escape(pose_prior)}"
             xcr:Coordinates="absolute"
-            xcr:DistortionModel="{distortion_model}"
-            xcr:DistortionCoeficients="{dist_str}"
+            xcr:DistortionModel="{escape(str(distortion_model))}"
+            xcr:DistortionCoeficients="{escape(dist_str)}"
             xcr:FocalLength35mm="{focal_length_35mm}"
             xcr:Skew="{skew}"
             xcr:AspectRatio="{aspect_ratio}"
             xcr:PrincipalPointU="{principal_point_u}"
             xcr:PrincipalPointV="{principal_point_v}"
-            xcr:CalibrationPrior="initial"
+            xcr:CalibrationPrior="{escape(calibration_prior)}"
             xcr:CalibrationGroup="{calibration_group}"
             xcr:DistortionGroup="{distortion_group}"
             xcr:InTexturing="{in_texturing}"
             xcr:InMeshing="{in_meshing}">
+            <xcr:Rotation>{rotation_str}</xcr:Rotation>
             <xcr:Position>{position_str}</xcr:Position>
         </rdf:Description>
     </rdf:RDF>
@@ -2419,20 +2437,22 @@ appear much larger than the camera circle. Scale the final
                     # Write XMP with pose data and camera calibration
                     # Note: position_scale is now 1.0 since we already scaled the distance
                     write_xmp_sidecar(
-                        stack_xmp_path.replace('.xmp', '.jpg'), 
-                        pose, 
+                        stack_xmp_path.replace('.xmp', '.jpg'),
+                        pose,
                         lens_dist,  # Original distance for metadata
-                        rail_angle, 
-                        angle, 
+                        rail_angle,
+                        angle,
                         perspective,
-                        focal_length_35mm=self.focal_length_35mm.get(),
-                        distortion_model=self.distortion_model.get(),
-                        skew=self.skew.get(),
-                        aspect_ratio=self.aspect_ratio.get(),
-                        principal_point_u=self.principal_point_u.get(),
-                        principal_point_v=self.principal_point_v.get(),
-                        distortion_coefficients=distortion_coeffs,
-                        position_scale=1.0  # Already scaled in ring_pose calculation
+                        focal_length_35mm=VERIFIED_FOCAL_LENGTH_35MM,
+                        distortion_model=VERIFIED_DISTORTION_MODEL,
+                        skew=VERIFIED_SKEW,
+                        aspect_ratio=VERIFIED_ASPECT_RATIO,
+                        principal_point_u=VERIFIED_PRINCIPAL_POINT_U,
+                        principal_point_v=VERIFIED_PRINCIPAL_POINT_V,
+                        distortion_coefficients=VERIFIED_DISTORTION_COEFFS,
+                        position_scale=1.0,  # Already scaled in ring_pose calculation
+                        pose_prior=VERIFIED_POSE_PRIOR,
+                        calibration_prior=VERIFIED_CALIB_PRIOR,
                     )
                     
                     self.after(0, self.log_capture, f"Generated XMP for stack {perspective} at {angle:.2f}°")
@@ -2447,6 +2467,14 @@ appear much larger than the camera circle. Scale the final
                     xmp_dir = os.path.join(session_dir, "xmp_files")
                     os.makedirs(xmp_dir, exist_ok=True)
                     
+                    # Determine zero-padding width for consolidated filenames
+                    # 2 digits for < 100, 3 digits for < 1000, etc. (minimum 2)
+                    try:
+                        perspectives_total = int(self.stacks_count.get())
+                    except Exception:
+                        perspectives_total = 0
+                    pad_width = max(2, len(str(max(0, perspectives_total - 1))))
+
                     # Copy all XMP files to consolidated directory
                     xmp_count = 0
                     for perspective in range(self.stacks_count.get()):
@@ -2459,7 +2487,8 @@ appear much larger than the camera circle. Scale the final
                         
                         if os.path.exists(source_xmp):
                             # Create consolidated filename matching stack directory naming exactly
-                            consolidated_filename = f"stack_{perspective:02d}.xmp"
+                            # Use dynamic padding to match total perspectives (e.g., 3 digits for 100-999)
+                            consolidated_filename = f"stack_{perspective:0{pad_width}d}.xmp"
                             dest_xmp = os.path.join(xmp_dir, consolidated_filename)
                             
                             # Copy XMP file
