@@ -88,7 +88,7 @@ def ring_pose(distance_mm: float, rail_deg: float, theta_deg: float) -> RigPose:
     # Build a "look-at origin" rotation matrix
     C = (x, y, z)
     tgt = (0.0, 0.0, 0.0)  # Looking at object center
-    upW = (0.0, 0.0, 1.0)  # World up vector (Z-axis is up)
+    upW = (0.0, 0.0, 1.0)  # World up vector (Z-up per RealityCapture standard)
 
     def vsub(a, b): return (a[0]-b[0], a[1]-b[1], a[2]-b[2])
     def vdot(a, b): return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]
@@ -97,9 +97,9 @@ def ring_pose(distance_mm: float, rail_deg: float, theta_deg: float) -> RigPose:
         m = math.sqrt(vdot(a, a))
         return (a[0]/m, a[1]/m, a[2]/m) if m > 0 else (0, 0, 1)
 
-    # TEST 8 WORKING CONFIGURATION:
-    # f points FROM origin TO camera (outward)
-    f = vnorm(vsub(C, tgt))  # Outward vector
+    # Follow reference document exactly: f = normalize(L - C)
+    # f points FROM camera TO look-at (inward toward origin)
+    f = vnorm(vsub(tgt, C))  # Inward vector
     
     # Handle gimbal lock when camera is directly above/below
     if abs(f[0]) < 1e-6 and abs(f[1]) < 1e-6:
@@ -108,12 +108,9 @@ def ring_pose(distance_mm: float, rail_deg: float, theta_deg: float) -> RigPose:
     else:
         rgt = vnorm(vcross(f, upW))  # Right
     
-    up = vnorm(vcross(rgt, f))  # Up
+    up = vcross(rgt, f)  # Up (already unit length from cross of two unit vectors)
 
-    # CORRECT rotation matrix (matches working generate_circle_xmp.py)
-    # Row 1 = +s (right vector)
-    # Row 2 = +u (up vector)
-    # Row 3 = -f (cameras face inward)
+    # Reference document Section 5: R rows = [s, u, -f]
     R9 = (rgt[0], rgt[1], rgt[2],
           up[0], up[1], up[2],
           -f[0], -f[1], -f[2])
@@ -2400,7 +2397,10 @@ appear much larger than the camera circle. Scale the final
                     # Apply position scaling to distance BEFORE calculating pose
                     # This ensures rotation matrix is calculated for the scaled position
                     scaled_lens_dist = lens_dist * position_scale
-                    pose = ring_pose(scaled_lens_dist, rail_angle, angle)
+                    
+                    # Turntable rotates CCW, so camera equivalent is CW orbit (negative angle)
+                    camera_angle = -angle
+                    pose = ring_pose(scaled_lens_dist, rail_angle, camera_angle)
                     
                     # Create XMP file for the stack (to be used with flattened image)
                     stack_xmp_filename = f"stack_{perspective:02d}_angle_{angle:06.2f}.xmp"
