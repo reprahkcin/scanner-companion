@@ -146,8 +146,8 @@ def write_xmp_sidecar(img_path: str, pose: RigPose,
                       in_texturing: int = 1,
                       in_meshing: int = 1,
                       position_scale: float = 1.0,
-                      pose_prior: str = "initial",
-                      calibration_prior: str = "initial") -> None:
+                      pose_prior: str = "locked",
+                      calibration_prior: str = "exact") -> None:
     """Write XMP sidecar file with camera pose data in RealityCapture format.
     
     Generates XMP metadata files conforming to RealityCapture's XMP specification.
