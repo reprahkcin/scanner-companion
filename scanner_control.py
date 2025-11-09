@@ -188,41 +188,25 @@ def write_xmp_sidecar(img_path: str, pose: RigPose,
     # Camera position in world coordinates (meters)
     P = pose.pos_m
     
-    # Apply position scale (e.g., 1000 for millimeters in macro photography)
-    position_str = f"{P[0] * position_scale} {P[1] * position_scale} {P[2] * position_scale}"
+    # Apply position scale and format to match verified good set exactly (6 decimal places)
+    position_str = f"{P[0] * position_scale:.6f} {P[1] * position_scale:.6f} {P[2] * position_scale:.6f}"
 
     R = pose.R_rowmajor
 
-    # Format distortion coefficients (note: RealityCapture uses "Coeficients" spelling)
-    dist_str = " ".join(f"{c}" for c in distortion_coefficients)
+    # Format distortion coefficients to match verified good set (integers when zero)
+    dist_str = " ".join("0" if abs(c) < 1e-9 else str(c) for c in distortion_coefficients)
 
-    # Format rotation matrix as space-separated values
-    rotation_str = " ".join(f"{r}" for r in R)
+    # Format rotation matrix to match verified good set exactly (10 decimal places)
+    rotation_str = " ".join(f"{r:.10f}" for r in R)
 
-    # Build XMP content following RealityCapture specification exactly
-    # Important: xcr:Rotation and xcr:Position must be child elements.
-    xmp_content = f'''<x:xmpmeta xmlns:x="adobe:ns:meta/">
-    <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-        <rdf:Description xmlns:xcr="{XCR_NS}"
-            xcr:Version="3"
-            xcr:PosePrior="{escape(pose_prior)}"
-            xcr:Coordinates="absolute"
-            xcr:DistortionModel="{escape(str(distortion_model))}"
-            xcr:DistortionCoeficients="{escape(dist_str)}"
-            xcr:FocalLength35mm="{focal_length_35mm}"
-            xcr:Skew="{skew}"
-            xcr:AspectRatio="{aspect_ratio}"
-            xcr:PrincipalPointU="{principal_point_u}"
-            xcr:PrincipalPointV="{principal_point_v}"
-            xcr:CalibrationPrior="{escape(calibration_prior)}"
-            xcr:CalibrationGroup="{calibration_group}"
-            xcr:DistortionGroup="{distortion_group}"
-            xcr:InTexturing="{in_texturing}"
-            xcr:InMeshing="{in_meshing}">
-            <xcr:Rotation>{rotation_str}</xcr:Rotation>
-            <xcr:Position>{position_str}</xcr:Position>
-        </rdf:Description>
-    </rdf:RDF>
+    # Build XMP content to match verified good set format exactly
+    xmp_content = f'''<x:xmpmeta xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:x="adobe:ns:meta/" xmlns:xcr="{XCR_NS}">
+  <rdf:RDF>
+    <rdf:Description xcr:Version="3" xcr:PosePrior="{escape(pose_prior)}" xcr:CalibrationPrior="{escape(calibration_prior)}" xcr:Coordinates="absolute" xcr:DistortionModel="{escape(str(distortion_model))}" xcr:DistortionCoeficients="{escape(dist_str)}" xcr:FocalLength35mm="{focal_length_35mm:.0f}" xcr:Skew="{skew:.0f}" xcr:AspectRatio="{aspect_ratio:.0f}" xcr:PrincipalPointU="{principal_point_u:.0f}" xcr:PrincipalPointV="{principal_point_v:.0f}" xcr:CalibrationGroup="{calibration_group}" xcr:DistortionGroup="{distortion_group}" xcr:InTexturing="{in_texturing}" xcr:InMeshing="{in_meshing}">
+      <xcr:Rotation>{rotation_str}</xcr:Rotation>
+      <xcr:Position>{position_str}</xcr:Position>
+    </rdf:Description>
+  </rdf:RDF>
 </x:xmpmeta>'''
     
     # Create XMP file path (replace extension with .xmp)
@@ -2327,8 +2311,7 @@ appear much larger than the camera circle. Scale the final
                 },
                 "xmp_consolidation": {
                     "enabled": True,
-                    "directory": "xmp_files",
-                    "naming_pattern": "stack_{perspective:02d}.xmp"
+                    "directory": "xmp_files"
                 }
             }
             
@@ -2356,6 +2339,13 @@ appear much larger than the camera circle. Scale the final
             # Interpret 'stacks_count' as number of perspectives (angles) in full 360°
             # and 'shots_per_stack' as number of focus slices per angle.
             angle_step = 360.0 / max(1, self.stacks_count.get())
+            
+            # Determine zero-padding width for stack folders to match consolidated XMP naming
+            try:
+                perspectives_total = int(self.stacks_count.get())
+            except Exception:
+                perspectives_total = 0
+            stack_pad_width = max(2, len(str(max(0, perspectives_total - 1))))
 
             # Move to starting positions
             if not self.move_to_angle(0.0):
@@ -2377,7 +2367,7 @@ appear much larger than the camera circle. Scale the final
                     if not self.capture_running:
                         break
 
-                    stack_dir = os.path.join(session_dir, f"stack_{perspective:02d}")
+                    stack_dir = os.path.join(session_dir, f"stack_{perspective:0{stack_pad_width}d}")
                     os.makedirs(stack_dir, exist_ok=True)
 
                     # Map slice index to 0.0..1.0 focus position
@@ -2393,7 +2383,7 @@ appear much larger than the camera circle. Scale the final
                     time.sleep(self.settle_delay.get())
 
                     # Capture
-                    filename = f"stack_{perspective:02d}_shot_{slice_idx:04d}_angle_{angle:06.2f}.{self.image_format.get().lower()}"
+                    filename = f"stack_{perspective:0{stack_pad_width}d}_shot_{slice_idx:04d}_angle_{angle:06.2f}.{self.image_format.get().lower()}"
                     filepath = os.path.join(stack_dir, filename)
                     self.capture_image(filepath)
 
@@ -2414,14 +2404,14 @@ appear much larger than the camera circle. Scale the final
                     
                     # Apply position scaling to distance BEFORE calculating pose
                     # This ensures rotation matrix is calculated for the scaled position
-                    scaled_lens_dist = lens_dist * position_scale
+                    scaled_lens_dist = lens_dist * position_scale / 1000.0  # Convert mm to meters and apply scaling
                     
                     # Turntable rotates CCW, so camera equivalent is CW orbit (negative angle)
                     camera_angle = -angle
                     pose = ring_pose(scaled_lens_dist, rail_angle, camera_angle)
                     
                     # Create XMP file for the stack (to be used with flattened image)
-                    stack_xmp_filename = f"stack_{perspective:02d}_angle_{angle:06.2f}.xmp"
+                    stack_xmp_filename = f"stack_{perspective:0{stack_pad_width}d}_angle_{angle:06.2f}.xmp"
                     stack_xmp_path = os.path.join(stack_dir, stack_xmp_filename)
                     
                     # Gather distortion coefficients
@@ -2435,7 +2425,6 @@ appear much larger than the camera circle. Scale the final
                     )
                     
                     # Write XMP with pose data and camera calibration
-                    # Note: position_scale is now 1.0 since we already scaled the distance
                     write_xmp_sidecar(
                         stack_xmp_path.replace('.xmp', '.jpg'),
                         pose,
@@ -2450,7 +2439,7 @@ appear much larger than the camera circle. Scale the final
                         principal_point_u=VERIFIED_PRINCIPAL_POINT_U,
                         principal_point_v=VERIFIED_PRINCIPAL_POINT_V,
                         distortion_coefficients=VERIFIED_DISTORTION_COEFFS,
-                        position_scale=1.0,  # Already scaled in ring_pose calculation
+                        position_scale=1.0,  # No scaling - positions already in meters
                         pose_prior=VERIFIED_POSE_PRIOR,
                         calibration_prior=VERIFIED_CALIB_PRIOR,
                     )
@@ -2479,10 +2468,10 @@ appear much larger than the camera circle. Scale the final
                     xmp_count = 0
                     for perspective in range(self.stacks_count.get()):
                         angle = perspective * angle_step
-                        stack_dir = os.path.join(session_dir, f"stack_{perspective:02d}")
+                        stack_dir = os.path.join(session_dir, f"stack_{perspective:0{stack_pad_width}d}")
                         
                         # Find XMP file in stack directory
-                        xmp_filename = f"stack_{perspective:02d}_angle_{angle:06.2f}.xmp"
+                        xmp_filename = f"stack_{perspective:0{stack_pad_width}d}_angle_{angle:06.2f}.xmp"
                         source_xmp = os.path.join(stack_dir, xmp_filename)
                         
                         if os.path.exists(source_xmp):
