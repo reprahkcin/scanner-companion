@@ -131,6 +131,74 @@ def ring_pose(distance_mm: float, rail_deg: float, theta_deg: float) -> RigPose:
     
     return RigPose((x, y, z), R9)
 
+def spherical_pose(radius_mm: float, azimuth_deg: float, elevation_deg: float) -> RigPose:
+    """Calculate camera pose on a sphere around object at origin.
+    
+    This generates poses for spherical photogrammetry where the camera orbits
+    the specimen at a constant distance on a virtual sphere.
+    
+    Args:
+        radius_mm: Distance from camera to specimen center (sphere radius)
+        azimuth_deg: Horizontal angle around specimen (0° = +X axis, 90° = +Y axis)
+        elevation_deg: Vertical angle (-45° = below, 0° = horizontal, +45° = above)
+        
+    Returns:
+        RigPose with camera position and look-at-origin rotation matrix
+        
+    Coordinate System:
+        World: X-right, Y-forward, Z-up (RealityCapture standard)
+        Camera: Looks down -Z axis, Y-up, X-right (OpenCV/RC standard)
+    """
+    # Convert angles to radians
+    azimuth = math.radians(azimuth_deg)
+    elevation = math.radians(elevation_deg)
+    r = radius_mm / 1000.0  # Convert to meters
+    
+    # Calculate camera position on sphere (spherical → Cartesian)
+    # Elevation: 0° = horizontal (XY plane), +90° = straight up (+Z), -90° = straight down (-Z)
+    x = r * math.cos(elevation) * math.cos(azimuth)
+    y = r * math.cos(elevation) * math.sin(azimuth)
+    z = r * math.sin(elevation)
+    
+    # Build rotation matrix for camera looking at origin
+    camera_pos = (x, y, z)
+    target = (0.0, 0.0, 0.0)  # Specimen at origin
+    world_up = (0.0, 0.0, 1.0)  # Z-up world
+    
+    # Helper functions
+    def vsub(a, b): return (a[0]-b[0], a[1]-b[1], a[2]-b[2])
+    def vdot(a, b): return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
+    def vcross(a, b): return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
+    def vnorm(a):
+        m = math.sqrt(vdot(a, a))
+        return (a[0]/m, a[1]/m, a[2]/m) if m > 0 else (0, 0, 1)
+    
+    # Forward vector: from camera toward target (inward)
+    forward = vnorm(vsub(target, camera_pos))
+    
+    # Handle gimbal lock when camera is directly above/below specimen
+    if abs(forward[0]) < 1e-6 and abs(forward[1]) < 1e-6:
+        # Camera pointing straight up or down - use arbitrary right vector based on azimuth
+        right = (math.cos(azimuth + math.pi/2), math.sin(azimuth + math.pi/2), 0.0)
+        right = vnorm(right)
+    else:
+        # Standard case: right = world_up × forward
+        right = vnorm(vcross(world_up, forward))
+    
+    # Up vector: forward × right (camera Y-axis points up in image)
+    up = vcross(forward, right)
+    
+    # Build rotation matrix (row-major: transforms world → camera coordinates)
+    # RealityCapture expects: R[world_point - camera_pos] = camera_coords
+    # Camera looks down -Z, so forward vector should map to camera +Z
+    # But we want specimen (ahead) to have positive Z in camera space
+    # Current convention from ring_pose (validated as geometrically correct):
+    R9 = (right[0], right[1], right[2],
+          up[0], up[1], up[2],
+          forward[0], forward[1], forward[2])
+    
+    return RigPose(camera_pos, R9)
+
 def write_xmp_sidecar(img_path: str, pose: RigPose, 
                       lens_to_object_mm: float, rail_to_horizon_deg: float,
                       theta_deg: float, stack_index: int,
@@ -311,8 +379,9 @@ class ScannerGUI(tk.Tk):
         self.camera_lock = threading.Lock()  # guard camera access across threads
 
         # === Motor position trackers ===
-        self.motor1_position_deg = 0.0
-        self.motor2_position_mm = 0.0
+        self.motor1_position_deg = 0.0  # Rotation platform
+        self.motor2_position_mm = 0.0   # Linear rail
+        self.motor3_position_deg = 0.0  # Vertical tilt axis
 
         # === Calibration data ===
         self.calibration_data = {}  # {angle: {"near": mm_pos, "far": mm_pos}}
@@ -523,6 +592,32 @@ class ScannerGUI(tk.Tk):
         
         self.btn_m2_up = ttk.Button(btn_frame2, text="▲ Up", command=self.motor2_up)
         self.btn_m2_up.grid(row=0, column=2, padx=(5,0))
+
+        # --- Motor 3 Frame (Vertical Tilt) ---
+        self.motor3_frame = ttk.LabelFrame(motors_frame, text="Motor 3 (Tilt)", padding=10)
+        self.motor3_frame.grid(row=1, column=0, columnspan=2, padx=0, pady=5, sticky="ew")
+        
+        self.motor3_pos_var = tk.StringVar(value="0.0°")
+        ttk.Label(self.motor3_frame, text="Position:").grid(row=0, column=0, sticky="w")
+        ttk.Label(self.motor3_frame, textvariable=self.motor3_pos_var, font=("TkDefaultFont", 10, "bold")).grid(row=0, column=1, sticky="w")
+        
+        ttk.Label(self.motor3_frame, text="Step Size:").grid(row=1, column=0, sticky="w")
+        self.motor3_step_var = tk.StringVar(value="1.0")
+        self.motor3_step_entry = ttk.Entry(self.motor3_frame, textvariable=self.motor3_step_var, width=8)
+        self.motor3_step_entry.grid(row=1, column=1, sticky="w")
+        ttk.Label(self.motor3_frame, text="degrees").grid(row=1, column=2, sticky="w")
+        
+        btn_frame3 = ttk.Frame(self.motor3_frame)
+        btn_frame3.grid(row=2, column=0, columnspan=3, pady=(10,0))
+        
+        self.btn_m3_down = ttk.Button(btn_frame3, text="▼ Down", command=self.motor3_down)
+        self.btn_m3_down.grid(row=0, column=0, padx=(0,5))
+        
+        self.btn_m3_home = ttk.Button(btn_frame3, text="⌂ Home", command=self.motor3_home)
+        self.btn_m3_home.grid(row=0, column=1, padx=5)
+        
+        self.btn_m3_up = ttk.Button(btn_frame3, text="▲ Up", command=self.motor3_up)
+        self.btn_m3_up.grid(row=0, column=2, padx=(5,0))
 
         # === RIGHT COLUMN: Setup Instructions ===
         
@@ -1482,6 +1577,45 @@ appear much larger than the camera circle. Scale the final
             self.status_var.set("Motor 2: Position zeroed")
         else:
             self.status_var.set("Failed to zero motor 2")
+
+    def motor3_up(self):
+        """Tilt specimen upward (positive angle)"""
+        try:
+            step = float(self.motor3_step_var.get())
+            command = f"TILT 3 {step} UP"
+            
+            if self.send_motor_command(command):
+                self.motor3_position_deg += step
+                self.motor3_pos_var.set(f"{self.motor3_position_deg:.1f}°")
+                self.status_var.set(f"Motor 3: Tilted {step}° up")
+            else:
+                self.status_var.set("Failed to tilt motor 3")
+        except ValueError:
+            self.status_var.set("Invalid step size for Motor 3")
+
+    def motor3_down(self):
+        """Tilt specimen downward (negative angle)"""
+        try:
+            step = float(self.motor3_step_var.get())
+            command = f"TILT 3 {step} DOWN"
+            
+            if self.send_motor_command(command):
+                self.motor3_position_deg -= step
+                self.motor3_pos_var.set(f"{self.motor3_position_deg:.1f}°")
+                self.status_var.set(f"Motor 3: Tilted {step}° down")
+            else:
+                self.status_var.set("Failed to tilt motor 3")
+        except ValueError:
+            self.status_var.set("Invalid step size for Motor 3")
+
+    def motor3_home(self):
+        """Zero the tilt axis position"""
+        if self.zero_motor_position(3):
+            self.motor3_position_deg = 0.0
+            self.motor3_pos_var.set("0.0°")
+            self.status_var.set("Motor 3: Position zeroed")
+        else:
+            self.status_var.set("Failed to zero motor 3")
 
     def _maintain_focus(self):
         """Periodically maintain window focus to prevent jumping to background."""

@@ -10,59 +10,81 @@ const int DIR_PIN_2      = 5;
 const int ENABLE_PIN_2   = 12;
 const int LIMIT_SWITCH_2 = 7;   // back/home limit for Motor 2
 
+const int STEP_PIN_3     = 9;   // Motor 3: vertical tilt axis
+const int DIR_PIN_3      = 10;
+const int ENABLE_PIN_3   = 11;
+const int LIMIT_SWITCH_3 = 8;   // future: bottom limit for Motor 3 (reserved)
+
 // ── Timing & driver enable polarity ──────────────────────────────────────────
 const unsigned int PULSE_DELAY_US   = 500;
 const bool      ENABLE_ACTIVE_HIGH  = HIGH;  // or LOW if your EN is active‐low
 
 // ── Calibration constants ────────────────────────────────────────────────────
-// Motor 1: we found that “ROTATE 1 90 CW” gives ≈2° on your table, so:
+// Motor 1: we found that "ROTATE 1 90 CW" gives ≈2° on your table, so:
 const float STEPS_PER_DEGREE_M1 = 75.0;
 
-// Motor 2: keep at 13 steps/mm so “MOVE 2 50 FORWARD” → ≈1 mm
+// Motor 2: keep at 13 steps/mm so "MOVE 2 50 FORWARD" → ≈1 mm
 const float STEPS_PER_MM_M2     = 13.0;
+
+// Motor 3: tilt axis (degrees) - adjust based on your gearing
+const float STEPS_PER_DEGREE_M3 = 75.0;
 
 // ── Direction inversion flags ────────────────────────────────────────────────
 const bool DIR_REVERSE_M1 = false;
 const bool DIR_REVERSE_M2 = false;  // now FORWARD/ BACKWARD map correctly
+const bool DIR_REVERSE_M3 = false;  // adjust if tilt direction is inverted
 
 // ── Position counters ────────────────────────────────────────────────────────
-float positionM1_deg = 0.0;  // degrees
-float positionM2_mm  = 0.0;  // millimetres
+float positionM1_deg = 0.0;  // degrees (rotation)
+float positionM2_mm  = 0.0;  // millimetres (rail)
+float positionM3_deg = 0.0;  // degrees (tilt)
 
 // ── Driver control ────────────────────────────────────────────────────────────
 void enableDriver(int m) {
-  digitalWrite(m==1?ENABLE_PIN_1:ENABLE_PIN_2,
-               ENABLE_ACTIVE_HIGH);
+  if (m == 1) digitalWrite(ENABLE_PIN_1, ENABLE_ACTIVE_HIGH);
+  else if (m == 2) digitalWrite(ENABLE_PIN_2, ENABLE_ACTIVE_HIGH);
+  else if (m == 3) digitalWrite(ENABLE_PIN_3, ENABLE_ACTIVE_HIGH);
 }
 void disableDriver(int m) {
-  digitalWrite(m==1?ENABLE_PIN_1:ENABLE_PIN_2,
-               !ENABLE_ACTIVE_HIGH);
+  if (m == 1) digitalWrite(ENABLE_PIN_1, !ENABLE_ACTIVE_HIGH);
+  else if (m == 2) digitalWrite(ENABLE_PIN_2, !ENABLE_ACTIVE_HIGH);
+  else if (m == 3) digitalWrite(ENABLE_PIN_3, !ENABLE_ACTIVE_HIGH);
 }
 
-// ── Atomized stepping with limit‐switch check (Motor 2) ───────────────────────
-void stepMotor(int stepPin, int dirPin, bool dirHigh, long steps) {
+// ── Atomized stepping with limit‐switch check ────────────────────────────────
+void stepMotor(int stepPin, int dirPin, bool dirHigh, long steps, int motor) {
   digitalWrite(dirPin, dirHigh ? HIGH : LOW);
   for (long i = 0; i < steps; ++i) {
-    // if Motor 2 stepping backward toward switch, abort on trip
-    if (stepPin==STEP_PIN_2 && !dirHigh 
-        && digitalRead(LIMIT_SWITCH_2)==LOW) {
+    // Motor 2: check limit switch when stepping backward toward home
+    if (motor == 2 && !dirHigh && digitalRead(LIMIT_SWITCH_2) == LOW) {
       break;
     }
+    // Motor 3: future limit switch check (reserved)
+    // if (motor == 3 && !dirHigh && digitalRead(LIMIT_SWITCH_3) == LOW) {
+    //   break;
+    // }
+    
     // pulse
     digitalWrite(stepPin, HIGH);
     delayMicroseconds(PULSE_DELAY_US);
     digitalWrite(stepPin, LOW);
     delayMicroseconds(PULSE_DELAY_US);
+    
     // update positions
-    if (stepPin==STEP_PIN_1) {
+    if (motor == 1) {
       positionM1_deg += dirHigh
         ? (1.0f / STEPS_PER_DEGREE_M1)
         : -(1.0f / STEPS_PER_DEGREE_M1);
     }
-    else if (stepPin==STEP_PIN_2) {
+    else if (motor == 2) {
       positionM2_mm  += dirHigh
         ? (1.0f / STEPS_PER_MM_M2)
         : -(1.0f / STEPS_PER_MM_M2);
+    }
+    else if (motor == 3) {
+      positionM3_deg += dirHigh
+        ? (1.0f / STEPS_PER_DEGREE_M3)
+        : -(1.0f / STEPS_PER_DEGREE_M3);
     }
   }
 }
@@ -73,7 +95,7 @@ void rotateMotor(int m, float deg, bool cw) {
   long steps = lround(deg * STEPS_PER_DEGREE_M1);
   bool dirHigh = cw ^ DIR_REVERSE_M1;
   enableDriver(1);
-  stepMotor(STEP_PIN_1, DIR_PIN_1, dirHigh, steps);
+  stepMotor(STEP_PIN_1, DIR_PIN_1, dirHigh, steps, 1);
   disableDriver(1);
 }
 
@@ -83,8 +105,18 @@ void moveMotor(int m, float mm, bool fwd) {
   long steps = lround(mm * STEPS_PER_MM_M2);
   bool dirHigh = fwd ^ DIR_REVERSE_M2;
   enableDriver(2);
-  stepMotor(STEP_PIN_2, DIR_PIN_2, dirHigh, steps);
+  stepMotor(STEP_PIN_2, DIR_PIN_2, dirHigh, steps, 2);
   disableDriver(2);
+}
+
+// ── High‐level tilt (Motor 3) ─────────────────────────────────────────────────
+void tiltMotor(int m, float deg, bool up) {
+  if (m != 3) return;
+  long steps = lround(deg * STEPS_PER_DEGREE_M3);
+  bool dirHigh = up ^ DIR_REVERSE_M3;
+  enableDriver(3);
+  stepMotor(STEP_PIN_3, DIR_PIN_3, dirHigh, steps, 3);
+  disableDriver(3);
 }
 
 // ── Serial parser & dispatcher ───────────────────────────────────────────────
@@ -110,16 +142,22 @@ void handleCommand(String line) {
     moveMotor(tok[1].toInt(), tok[2].toFloat(), tok[3]=="FORWARD");
     Serial.println("OK");
   }
+  else if (tok[0]=="TILT" && tc==4) {
+    tiltMotor(tok[1].toInt(), tok[2].toFloat(), tok[3]=="UP");
+    Serial.println("OK");
+  }
   else if (tok[0]=="ZERO" && tc>=2) {
     int m=tok[1].toInt();
     if (m==1) { positionM1_deg=0.0; Serial.println("OK"); }
     else if (m==2) { positionM2_mm=0.0;  Serial.println("OK"); }
+    else if (m==3) { positionM3_deg=0.0; Serial.println("OK"); }
     else Serial.println("ERR: ZERO unsupported for motor "+String(m));
   }
   else if (tok[0]=="GET_POS" && tc>=2) {
     int m=tok[1].toInt();
     if (m==1) Serial.println(positionM1_deg);
     else if (m==2) Serial.println(positionM2_mm);
+    else if (m==3) Serial.println(positionM3_deg);
     else Serial.println("ERR: GET_POS unsupported for motor "+String(m));
   }
   else {
@@ -135,50 +173,22 @@ void setup() {
   pinMode(STEP_PIN_2,   OUTPUT);
   pinMode(DIR_PIN_2,    OUTPUT);
   pinMode(ENABLE_PIN_2, OUTPUT);
+  pinMode(STEP_PIN_3,   OUTPUT);
+  pinMode(DIR_PIN_3,    OUTPUT);
+  pinMode(ENABLE_PIN_3, OUTPUT);
   pinMode(LIMIT_SWITCH_2, INPUT_PULLUP);
+  // pinMode(LIMIT_SWITCH_3, INPUT_PULLUP);  // uncomment when limit switch is installed
 
-  // start with both drivers disabled
+  // start with all drivers disabled
   disableDriver(1);
   disableDriver(2);
+  disableDriver(3);
 
-  Serial.println("Ready for ROTATE, MOVE, ZERO, GET_POS");
+  Serial.println("Ready for ROTATE, MOVE, TILT, ZERO, GET_POS");
 }
 
 void loop() {
   if (Serial.available()) {
     handleCommand(Serial.readStringUntil('\n'));
   }
-
-  if (Serial.available()) {
-    String line = Serial.readStringUntil('\n');
-    line.trim();
-    if (line.startsWith("SPEED")) {
-      // format: SPEED <motor_id> <value>
-      int motor = line.charAt(6) - '0';        // crude but works for single-digit
-      int val   = line.substring(8).toInt();
-      setSpeed(motor, val);
-    }
-    else if (line.startsWith("JOG")) {
-      // format: JOG <motor_id> <DIR> <value>
-      // e.g. "JOG 2 BACKWARD 50"
-      char buf[line.length()+1];
-      line.toCharArray(buf, sizeof(buf));
-      int motor, speed;
-      char dir[10];
-      sscanf(buf, "JOG %d %s %d", &motor, dir, &speed);
-      bool forward = (strcmp(dir, "FORWARD") == 0);
-      jogMotor(motor, forward, speed);
-    }
-  }
-  
-}
-
-// Example stubs — replace with your real functions:
-void setSpeed(int motorId, int speed) {
-  // e.g., driver[motorId].setMaxSpeed(speed);
-}
-
-void jogMotor(int motorId, bool forward, int speed) {
-  // e.g., driver[motorId].setSpeed( forward ? speed : -speed );
-  //       driver[motorId].runSpeedFor(steps);
 }
