@@ -17,7 +17,7 @@ const int LIMIT_SWITCH_3 = 8; // future: bottom limit for Motor 3 (reserved)
 
 // ── Timing & driver enable polarity ──────────────────────────────────────────
 const unsigned int PULSE_DELAY_US = 500;
-const bool ENABLE_ACTIVE_HIGH = LOW; // Most drivers (A4988, DRV8825, TMC2208) are active-low
+const bool ENABLE_ACTIVE_HIGH = false; // Most drivers (A4988, DRV8825, TMC2208) are active-low (enabled when pin is LOW)
 
 // ── Calibration constants ────────────────────────────────────────────────────
 // Motor 1: we found that "ROTATE 1 90 CW" gives ≈2° on your table, so:
