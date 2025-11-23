@@ -418,6 +418,12 @@ class ScannerGUI(tk.Tk):
         self.settle_delay = tk.DoubleVar(value=DEFAULT_SETTLE_DELAY)
         self.image_format = tk.StringVar(value="JPG")
         
+        # === Scan mode settings ===
+        self.scan_mode = tk.StringVar(value="ring")  # "ring" or "spherical"
+        self.elevation_min = tk.DoubleVar(value=-60.0)  # Min tilt angle for spherical scan
+        self.elevation_max = tk.DoubleVar(value=60.0)   # Max tilt angle for spherical scan
+        self.elevation_steps = tk.IntVar(value=5)       # Number of elevation angles
+        
         # === Camera settings ===
         self.shutter_speed = tk.IntVar(value=0)  # 0 = auto
         self.brightness = tk.DoubleVar(value=0.0)
@@ -477,7 +483,15 @@ class ScannerGUI(tk.Tk):
 
     def _build_gui(self):
         # Create main notebook for tabs
-        self.notebook = ttk.Notebook(self)
+        # Create main container with notebook on left and help panel on right
+        main_container = ttk.Frame(self)
+        main_container.pack(fill="both", expand=True)
+        
+        # Left side: Tabs
+        left_side = ttk.Frame(main_container)
+        left_side.pack(side="left", fill="both", expand=True)
+        
+        self.notebook = ttk.Notebook(left_side)
         
         # === Manual Control Tab ===
         self.manual_tab = ttk.Frame(self.notebook)
@@ -489,17 +503,62 @@ class ScannerGUI(tk.Tk):
         self.notebook.add(self.calibration_tab, text="Calibration")
         self._build_calibration_tab()
         
-        # === Capture Tab ===
+        # === Capture & Camera Tab (combined) ===
         self.capture_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.capture_tab, text="Capture")
-        self._build_capture_tab()
+        self.notebook.add(self.capture_tab, text="Capture & Camera")
+        self._build_capture_and_camera_tab()
         
-        # === Camera Settings Tab ===
-        self.camera_settings_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.camera_settings_tab, text="Camera Settings")
-        self._build_camera_settings_tab()
+        self.notebook.pack(fill="both", expand=True)
+        
+        # Right side: Persistent help/notes panel
+        right_side = ttk.Frame(main_container, width=400)
+        right_side.pack(side="right", fill="both", padx=(5,0))
+        right_side.pack_propagate(False)  # Maintain fixed width
+        
+        # Help/Instructions section
+        self.help_frame = ttk.LabelFrame(right_side, text="User Manual", padding=10)
+        self.help_frame.pack(fill="both", expand=True, pady=(0,5))
+        
+        # Create scrollable text widget for instructions
+        help_container = ttk.Frame(self.help_frame)
+        help_container.pack(fill="both", expand=True)
+        
+        self.help_text = tk.Text(help_container, wrap="word", font=("TkDefaultFont", 9),
+                                padx=10, pady=10)
+        self.help_text.pack(side="left", fill="both", expand=True)
+        
+        help_scrollbar = ttk.Scrollbar(help_container, orient="vertical", 
+                                      command=self.help_text.yview)
+        help_scrollbar.pack(side="right", fill="y")
+        self.help_text.config(yscrollcommand=help_scrollbar.set)
+        
+        # Load manual content
+        self._load_manual_content()
+        self.help_text.config(state="disabled")  # Make read-only
+        
+        # Notes section
+        self.notes_frame = ttk.LabelFrame(right_side, text="Session Notes", padding=10)
+        self.notes_frame.pack(fill="both", pady=(5,0))
+        
+        notes_container = ttk.Frame(self.notes_frame)
+        notes_container.pack(fill="both", expand=True)
+        
+        self.notes_text = tk.Text(notes_container, wrap="word", font=("TkDefaultFont", 9),
+                                 height=8, padx=5, pady=5)
+        self.notes_text.pack(side="left", fill="both", expand=True)
+        
+        notes_scrollbar = ttk.Scrollbar(notes_container, orient="vertical",
+                                       command=self.notes_text.yview)
+        notes_scrollbar.pack(side="right", fill="y")
+        self.notes_text.config(yscrollcommand=notes_scrollbar.set)
+        
+        # Auto-save notes on any change
+        self.notes_text.bind("<<Modified>>", self._auto_save_notes)
+        
+        # Load existing notes
+        self._load_notes()
 
-        # Status Bar
+        # Status Bar (will be packed later in _layout_gui)
         self.status_bar = ttk.Label(self, textvariable=self.status_var, relief="sunken", anchor="w")
 
     def _build_manual_tab(self):
@@ -805,6 +864,34 @@ TIPS:
         ttk.Button(btn_frame2, text="⌂ Home", command=self.motor2_home).pack(side="left", padx=5)
         ttk.Button(btn_frame2, text="▲ Forward", command=self.cal_motor2_up).pack(side="left", padx=(5,0))
         
+        # Motor 3 controls (tilt)
+        self.cal_motor3_frame = ttk.LabelFrame(left_column, text="Tilt Motor", padding=10)
+        self.cal_motor3_frame.pack(fill="x", pady=(10,0))
+        
+        # Position display
+        pos_frame3 = ttk.Frame(self.cal_motor3_frame)
+        pos_frame3.pack(fill="x", pady=(0,5))
+        ttk.Label(pos_frame3, text="Position:").pack(side="left")
+        ttk.Label(pos_frame3, textvariable=self.motor3_pos_var, 
+                 font=("TkDefaultFont", 10, "bold")).pack(side="left", padx=(5,0))
+        
+        # Step size
+        step_frame3 = ttk.Frame(self.cal_motor3_frame)
+        step_frame3.pack(fill="x", pady=(0,5))
+        ttk.Label(step_frame3, text="Step:").pack(side="left")
+        self.cal_motor3_step_var = tk.StringVar(value="1.0")
+        step_entry3 = ttk.Entry(step_frame3, textvariable=self.cal_motor3_step_var, width=8)
+        step_entry3.pack(side="left", padx=(5,0))
+        ttk.Label(step_frame3, text="degrees").pack(side="left", padx=(5,0))
+        
+        # Control buttons
+        btn_frame3 = ttk.Frame(self.cal_motor3_frame)
+        btn_frame3.pack(fill="x")
+        
+        ttk.Button(btn_frame3, text="▼ Down", command=self.cal_motor3_down).pack(side="left", padx=(0,5))
+        ttk.Button(btn_frame3, text="⌂ Zero", command=self.motor3_home).pack(side="left", padx=5)
+        ttk.Button(btn_frame3, text="▲ Up", command=self.cal_motor3_up).pack(side="left", padx=(5,0))
+        
         # === RIGHT COLUMN: Calibration Workflow ===
         
         # Calibration status
@@ -909,34 +996,52 @@ TIPS:
         self.lens_distance_entry = ttk.Entry(pose_grid, textvariable=self.lens_to_object_mm, width=12)
         self.lens_distance_entry.grid(row=0, column=1, sticky="w", padx=(5,0), pady=2)
         
-        ttk.Label(pose_grid, text="Rail to Horizon (deg):").grid(row=1, column=0, sticky="w", pady=2)
-        self.rail_angle_entry = ttk.Entry(pose_grid, textvariable=self.rail_to_horizon_deg, width=12)
-        self.rail_angle_entry.grid(row=1, column=1, sticky="w", padx=(5,0), pady=2)
-        
-        ttk.Label(pose_grid, text="Focal Length (35mm eq):").grid(row=2, column=0, sticky="w", pady=2)
+        ttk.Label(pose_grid, text="Focal Length (35mm eq):").grid(row=1, column=0, sticky="w", pady=2)
         self.focal_length_entry = ttk.Entry(pose_grid, textvariable=self.focal_length_35mm, width=12)
-        self.focal_length_entry.grid(row=2, column=1, sticky="w", padx=(5,0), pady=2)
+        self.focal_length_entry.grid(row=1, column=1, sticky="w", padx=(5,0), pady=2)
         
-        ttk.Label(pose_grid, text="Position Scale Factor:").grid(row=3, column=0, sticky="w", pady=2)
-        self.position_scale_entry = ttk.Entry(pose_grid, textvariable=self.xmp_position_scale, width=12)
-        self.position_scale_entry.grid(row=3, column=1, sticky="w", padx=(5,0), pady=2)
+        ttk.Label(pose_grid, text="Position Scale Preset:").grid(row=2, column=0, sticky="w", pady=2)
+        scale_preset_frame = ttk.Frame(pose_grid)
+        scale_preset_frame.grid(row=2, column=1, sticky="w", padx=(5,0), pady=2)
+        
+        ttk.Button(scale_preset_frame, text="Tiny (1-5mm)", width=12,
+                  command=lambda: self.xmp_position_scale.set(100000)).pack(side="left", padx=(0,2))
+        ttk.Button(scale_preset_frame, text="Small (5-20mm)", width=12,
+                  command=lambda: self.xmp_position_scale.set(20000)).pack(side="left", padx=2)
+        ttk.Button(scale_preset_frame, text="Medium (20-50mm)", width=13,
+                  command=lambda: self.xmp_position_scale.set(5000)).pack(side="left", padx=(2,0))
+        
+        ttk.Label(pose_grid, text="Current Scale:").grid(row=3, column=0, sticky="w", pady=2)
+        scale_display = ttk.Label(pose_grid, textvariable=self.xmp_position_scale, 
+                                 font=("TkDefaultFont", 9, "bold"))
+        scale_display.grid(row=3, column=1, sticky="w", padx=(5,0), pady=2)
         
         # Help text with scale factor calculator
-        help_text = """Distance: lens entrance pupil to object center
-Angle: positive = camera pitched up, negative = down
-Focal: 35mm equivalent (typical Pi cam: 50-60mm)
-
-Position Scale Factor Guide:
-  • Rule of thumb: scale = 1000 × (500 / distance_mm)
-  • 250mm distance → scale = 2,000
-  • 100mm distance → scale = 5,000  
-  • 49mm distance → scale = 10,000
-  • < 10mm distance → scale = 100,000+
+        help_text = """LENS TO OBJECT: Measure from lens front to specimen center (mm)
+  How to measure: Use ruler/caliper from camera lens to turntable center
+   
+FOCAL LENGTH (35mm equivalent): Camera's field of view
+  - Pi HQ Camera (6mm lens): ~50mm equivalent
+  - Pi HQ Camera (16mm lens): ~130mm equivalent
+  - Pi Camera V2: ~29mm equivalent
+  How to find: Check camera spec sheet or calculate:
+    35mm_equiv = actual_focal_mm x (36mm / sensor_width_mm)
+   
+POSITION SCALE PRESET: Keeps XMP precision manageable
+  Select based on your specimen size:
+  - Tiny (1-5mm): Insects, coins, small jewelry
+  - Small (5-20mm): Larger insects, small fossils, electronic parts
+  - Medium (20-50mm): Rocks, larger fossils, small sculptures
   
-This prevents visualization artifacts where camera frustums
-appear much larger than the camera circle. Scale the final
-3D model back down by the same factor in RealityCapture."""
-        ttk.Label(pose_grid, text=help_text, foreground="#666", justify="left", font=("TkDefaultFont", 8)).grid(row=4, column=0, columnspan=2, sticky="w", pady=(5,0))
+  Note: Rail angle is automatically calculated from tilt motor position
+  Note: Scale final model back to real size in RealityCapture"""
+        
+        help_label = tk.Text(pose_grid, height=18, wrap="word", font=("TkDefaultFont", 8),
+                            foreground="#444", relief="flat",
+                            borderwidth=0, highlightthickness=0)
+        help_label.insert("1.0", help_text)
+        help_label.config(state="disabled")
+        help_label.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10,0))
         
         # Tab 2: Camera Intrinsics
         intrinsics_tab = ttk.Frame(xmp_notebook)
@@ -962,8 +1067,26 @@ appear much larger than the camera circle. Scale the final
         self.skew_entry.grid(row=3, column=1, sticky="w", padx=(5,0), pady=2)
         
         # Help text
-        help_text2 = "Usually 0,0 for principal point (sensor center)\nAspect ratio typically 1.0, skew typically 0"
-        ttk.Label(intrinsics_grid, text=help_text2, foreground="#666", justify="left", font=("TkDefaultFont", 8)).grid(row=4, column=0, columnspan=2, sticky="w", pady=(5,0))
+        help_text2 = """PRINCIPAL POINT: Optical center of sensor (normalized 0-1)
+  - Default: (0.0, 0.0) = perfect sensor center
+  - Leave at 0,0 unless you have calibration data
+  - Positive U = optical center right of physical center
+  - Positive V = optical center below physical center
+   
+ASPECT RATIO: Pixel width/height ratio
+  - Default: 1.0 (square pixels)
+  - Leave at 1.0 for modern cameras
+   
+SKEW: Sensor axis alignment
+  - Default: 0.0 (axes perpendicular)
+  - Leave at 0 unless using specialty camera"""
+        
+        help_label2 = tk.Text(intrinsics_grid, height=14, wrap="word", font=("TkDefaultFont", 8),
+                             foreground="#444", relief="flat",
+                             borderwidth=0, highlightthickness=0)
+        help_label2.insert("1.0", help_text2)
+        help_label2.config(state="disabled")
+        help_label2.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10,0))
         
         # Tab 3: Distortion Coefficients
         distortion_tab = ttk.Frame(xmp_notebook)
@@ -997,8 +1120,34 @@ appear much larger than the camera circle. Scale the final
         self.k4_entry.grid(row=5, column=1, sticky="w", padx=(5,0), pady=2)
         
         # Help text
-        help_text3 = "Brown distortion model coefficients\nUse 0 for all if no distortion data available"
-        ttk.Label(distortion_grid, text=help_text3, foreground="#666", justify="left", font=("TkDefaultFont", 8)).grid(row=6, column=0, columnspan=2, sticky="w", pady=(5,0))
+        help_text3 = """DISTORTION COEFFICIENTS: Lens optical corrections
+Brown-Conrady distortion model (brown3):
+   
+RADIAL (k1, k2, k3, k4): Barrel/pincushion distortion
+  - Straight lines appear curved
+  - k1 is primary coefficient (strongest effect)
+     
+TANGENTIAL (p1, p2): Sensor/lens misalignment
+  - Image appears tilted or decentered
+  - Usually much smaller than radial
+   
+WARNING: Leave all at 0.0 unless you have calibration data
+  - Use OpenCV camera calibration with checkerboard pattern
+  - Or RealityCapture's "Undistort" feature (estimates automatically)
+  - Wrong values are worse than no values!
+   
+How to calibrate (advanced):
+  1. Print checkerboard pattern (8x6 or larger)
+  2. Capture 20-30 images from different angles
+  3. Use OpenCV calibrateCamera() function
+  4. Enter k1-k4 and p1-p2 values here"""
+        
+        help_label3 = tk.Text(distortion_grid, height=21, wrap="word", font=("TkDefaultFont", 8),
+                             foreground="#444", relief="flat",
+                             borderwidth=0, highlightthickness=0)
+        help_label3.insert("1.0", help_text3)
+        help_label3.config(state="disabled")
+        help_label3.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(10,0))
         
         # Calibration progress
         self.calibration_progress_frame = ttk.LabelFrame(right_column, text="Progress Log", padding=10)
@@ -1016,9 +1165,24 @@ appear much larger than the camera circle. Scale the final
         scrollbar.pack(side="right", fill="y")
         self.calibration_progress_text.config(yscrollcommand=scrollbar.set)
 
-    def _build_capture_tab(self):
+    def _build_capture_and_camera_tab(self):
+        """Build combined capture and camera settings tab with two columns"""
+        # Create main layout with left and right columns
+        main_frame = ttk.Frame(self.capture_tab)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        # Left column for capture settings
+        left_column = ttk.Frame(main_frame)
+        left_column.pack(side="left", fill="both", expand=True, padx=(0,5))
+        
+        # Right column for camera settings
+        right_column = ttk.Frame(main_frame)
+        right_column.pack(side="right", fill="both", expand=True, padx=(5,0))
+        
+        # === LEFT COLUMN: Capture Settings ===
+        
         # Specimen settings
-        self.specimen_frame = ttk.LabelFrame(self.capture_tab, text="Specimen", padding=10)
+        self.specimen_frame = ttk.LabelFrame(left_column, text="Specimen", padding=10)
         
         ttk.Label(self.specimen_frame, text="Name:").grid(row=0, column=0, sticky="w")
         self.specimen_entry = ttk.Entry(self.specimen_frame, textvariable=self.specimen_name, width=20)
@@ -1032,31 +1196,52 @@ appear much larger than the camera circle. Scale the final
         self.btn_browse_dir.grid(row=1, column=2, padx=(5,0))
         
         # Capture settings
-        self.capture_settings_frame = ttk.LabelFrame(self.capture_tab, text="Capture Settings", padding=10)
+        self.capture_settings_frame = ttk.LabelFrame(left_column, text="Capture Settings", padding=10)
         
-        ttk.Label(self.capture_settings_frame, text="Perspectives (angles):").grid(row=0, column=0, sticky="w")
+        # Scan mode selection
+        ttk.Label(self.capture_settings_frame, text="Scan Mode:").grid(row=0, column=0, sticky="w")
+        scan_mode_frame = ttk.Frame(self.capture_settings_frame)
+        scan_mode_frame.grid(row=0, column=1, columnspan=2, sticky="w", padx=(5,0))
+        ttk.Radiobutton(scan_mode_frame, text="Ring (Horizontal)", variable=self.scan_mode, 
+                       value="ring", command=self._update_scan_mode_ui).pack(side="left", padx=(0,10))
+        ttk.Radiobutton(scan_mode_frame, text="Spherical (Spiral)", variable=self.scan_mode, 
+                       value="spherical", command=self._update_scan_mode_ui).pack(side="left")
+        
+        ttk.Label(self.capture_settings_frame, text="Perspectives (angles):").grid(row=1, column=0, sticky="w")
         self.stacks_spinbox = ttk.Spinbox(self.capture_settings_frame, from_=1, to=360, 
                                          textvariable=self.stacks_count, width=10)
-        self.stacks_spinbox.grid(row=0, column=1, sticky="w", padx=(5,0))
+        self.stacks_spinbox.grid(row=1, column=1, sticky="w", padx=(5,0))
         
-        ttk.Label(self.capture_settings_frame, text="Focus slices per angle:").grid(row=1, column=0, sticky="w")
+        ttk.Label(self.capture_settings_frame, text="Focus slices per angle:").grid(row=2, column=0, sticky="w")
         self.shots_spinbox = ttk.Spinbox(self.capture_settings_frame, from_=1, to=360, 
                                         textvariable=self.shots_per_stack, width=10)
-        self.shots_spinbox.grid(row=1, column=1, sticky="w", padx=(5,0))
+        self.shots_spinbox.grid(row=2, column=1, sticky="w", padx=(5,0))
         
         # Show computed angle step to clarify spacing
         self.angle_step_label_var = tk.StringVar(value="Angle step: —")
-        ttk.Label(self.capture_settings_frame, textvariable=self.angle_step_label_var).grid(row=0, column=2, sticky="w", padx=(10,0))
+        ttk.Label(self.capture_settings_frame, textvariable=self.angle_step_label_var).grid(row=1, column=2, sticky="w", padx=(10,0))
         
-        ttk.Label(self.capture_settings_frame, text="Settle Delay (s):").grid(row=2, column=0, sticky="w")
+        # Spherical scan settings (initially hidden)
+        self.spherical_settings_label = ttk.Label(self.capture_settings_frame, text="Elevation angles:")
+        self.spherical_min_label = ttk.Label(self.capture_settings_frame, text="Min:")
+        self.spherical_min_spinbox = ttk.Spinbox(self.capture_settings_frame, from_=-60, to=60, 
+                                                 textvariable=self.elevation_min, width=8)
+        self.spherical_max_label = ttk.Label(self.capture_settings_frame, text="Max:")
+        self.spherical_max_spinbox = ttk.Spinbox(self.capture_settings_frame, from_=-60, to=60, 
+                                                 textvariable=self.elevation_max, width=8)
+        self.spherical_steps_label = ttk.Label(self.capture_settings_frame, text="Steps:")
+        self.spherical_steps_spinbox = ttk.Spinbox(self.capture_settings_frame, from_=2, to=20, 
+                                                   textvariable=self.elevation_steps, width=8)
+        
+        ttk.Label(self.capture_settings_frame, text="Settle Delay (s):").grid(row=4, column=0, sticky="w")
         self.settle_spinbox = ttk.Spinbox(self.capture_settings_frame, from_=0.1, to=5.0, increment=0.1,
                                          textvariable=self.settle_delay, width=10)
-        self.settle_spinbox.grid(row=2, column=1, sticky="w", padx=(5,0))
+        self.settle_spinbox.grid(row=4, column=1, sticky="w", padx=(5,0))
         
-        ttk.Label(self.capture_settings_frame, text="Image Format:").grid(row=3, column=0, sticky="w")
+        ttk.Label(self.capture_settings_frame, text="Image Format:").grid(row=5, column=0, sticky="w")
         self.format_combo = ttk.Combobox(self.capture_settings_frame, textvariable=self.image_format, 
                                         values=["JPG", "PNG", "TIFF"], state="readonly", width=8)
-        self.format_combo.grid(row=3, column=1, sticky="w", padx=(5,0))
+        self.format_combo.grid(row=5, column=1, sticky="w", padx=(5,0))
 
         # Update angle step label whenever perspectives value changes
         def _update_angle_step_label(*_):
@@ -1075,7 +1260,7 @@ appear much larger than the camera circle. Scale the final
         _update_angle_step_label()
         
         # Capture controls
-        self.capture_controls_frame = ttk.LabelFrame(self.capture_tab, text="Controls", padding=10)
+        self.capture_controls_frame = ttk.LabelFrame(left_column, text="Controls", padding=10)
         
         self.btn_test_capture = ttk.Button(self.capture_controls_frame, text="Test Capture", 
                                           command=self.test_capture)
@@ -1090,7 +1275,7 @@ appear much larger than the camera circle. Scale the final
         self.btn_stop_capture.grid(row=0, column=2, padx=(10,0), pady=5)
         
         # Progress
-        self.progress_frame = ttk.LabelFrame(self.capture_tab, text="Progress", padding=10)
+        self.progress_frame = ttk.LabelFrame(left_column, text="Progress", padding=10)
         
         self.progress_bar = ttk.Progressbar(self.progress_frame, variable=self.capture_progress, 
                                            maximum=100, length=400)
@@ -1100,7 +1285,7 @@ appear much larger than the camera circle. Scale the final
         ttk.Label(self.progress_frame, textvariable=self.progress_label_var).grid(row=1, column=0, sticky="w")
         
         # Capture log
-        self.capture_log_frame = ttk.LabelFrame(self.capture_tab, text="Capture Log", padding=10)
+        self.capture_log_frame = ttk.LabelFrame(left_column, text="Capture Log", padding=10)
         
         self.capture_log_text = tk.Text(self.capture_log_frame, height=8, width=60)
         self.capture_log_text.grid(row=0, column=0, sticky="nsew")
@@ -1110,147 +1295,102 @@ appear much larger than the camera circle. Scale the final
         capture_scrollbar.grid(row=0, column=1, sticky="ns")
         self.capture_log_text.config(yscrollcommand=capture_scrollbar.set)
         
-        # Layout capture tab
-        self.capture_tab.rowconfigure(4, weight=1)
-        self.capture_tab.columnconfigure(0, weight=1)
+        # Layout left column (capture settings)
+        self.specimen_frame.pack(fill="x", pady=(0,5))
+        self.capture_settings_frame.pack(fill="x", pady=5)
+        self.capture_controls_frame.pack(fill="x", pady=5)
+        self.progress_frame.pack(fill="x", pady=5)
+        self.capture_log_frame.pack(fill="both", expand=True, pady=(5,0))
         
-        self.specimen_frame.grid(row=0, column=0, padx=10, pady=5, sticky="ew")
-        self.capture_settings_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
-        self.capture_controls_frame.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
-        self.progress_frame.grid(row=3, column=0, padx=10, pady=5, sticky="ew")
-        self.capture_log_frame.grid(row=4, column=0, padx=10, pady=5, sticky="nsew")
-
-    def _build_camera_settings_tab(self):
+        # === RIGHT COLUMN: Camera Settings ===
+        
+        # Camera preview
+        self.camera_preview_frame = ttk.LabelFrame(right_column, text="Camera Preview", padding=10)
+        self.camera_preview_label = tk.Label(self.camera_preview_frame, bg="black", anchor="center")
+        self.camera_preview_label.pack(padx=5, pady=(5,0))
+        
+        # Preview control button
+        self.camera_preview_btn = ttk.Button(self.camera_preview_frame, text="Start Preview", 
+                                             command=self.toggle_preview)
+        self.camera_preview_btn.pack(pady=(5,5))
+        
         # Camera controls
-        self.camera_controls_frame = ttk.LabelFrame(self.camera_settings_tab, text="Camera Controls", padding=10)
-
-        # Row 0: Shutter speed
-        ttk.Label(self.camera_controls_frame, text="Shutter Speed (μs):").grid(row=0, column=0, sticky="w")
-        self.shutter_spinbox = ttk.Spinbox(
-            self.camera_controls_frame,
-            from_=0,
-            to=1000000,
-            textvariable=self.shutter_speed,
-            width=15
-        )
-        self.shutter_spinbox.grid(row=0, column=1, sticky="w", padx=(5, 0))
-        ttk.Label(self.camera_controls_frame, text="(0 = auto)").grid(row=0, column=2, sticky="w", padx=(5, 0))
-
-        # Row 1: AE toggle and ISO
-        ttk.Checkbutton(self.camera_controls_frame, text="Auto Exposure", variable=self.ae_enable).grid(row=1, column=0, sticky="w")
-        ttk.Label(self.camera_controls_frame, text="ISO:").grid(row=1, column=1, sticky="w")
-        self.iso_combo = ttk.Combobox(
-            self.camera_controls_frame,
-            textvariable=self.iso_value,
-            state="readonly",
-            values=["Auto", "100", "200", "400", "800", "1600"],
-            width=8,
-        )
-        self.iso_combo.grid(row=1, column=2, sticky="w", padx=(5, 0))
-
-        # Row 2: Analogue gain and EV comp
-        ttk.Label(self.camera_controls_frame, text="Analogue Gain:").grid(row=2, column=0, sticky="w")
-        self.gain_scale = ttk.Scale(
-            self.camera_controls_frame,
-            from_=1.0,
-            to=16.0,
-            variable=self.analogue_gain,
-            orient="horizontal",
-            length=200,
-        )
-        self.gain_scale.grid(row=2, column=1, sticky="w", padx=(5, 0))
-
-        ttk.Label(self.camera_controls_frame, text="EV Comp:").grid(row=2, column=2, sticky="w")
-        self.ev_scale = ttk.Scale(
-            self.camera_controls_frame,
-            from_=-2.0,
-            to=2.0,
-            variable=self.ev_compensation,
-            orient="horizontal",
-            length=120,
-        )
-        self.ev_scale.grid(row=2, column=3, sticky="w", padx=(5, 0))
-
-        # Row 3: Brightness + live label
-        ttk.Label(self.camera_controls_frame, text="Brightness:").grid(row=3, column=0, sticky="w")
-        self.brightness_scale = ttk.Scale(
-            self.camera_controls_frame,
-            from_=-1.0,
-            to=1.0,
-            variable=self.brightness,
-            orient="horizontal",
-            length=200,
-        )
-        self.brightness_scale.grid(row=3, column=1, sticky="w", padx=(5, 0))
-
+        self.camera_controls_frame = ttk.LabelFrame(right_column, text="Camera Controls", padding=10)
+        
+        # Create three sub-columns for better organization
+        left_col = ttk.Frame(self.camera_controls_frame)
+        left_col.grid(row=0, column=0, sticky="n", padx=(0,10))
+        
+        middle_col = ttk.Frame(self.camera_controls_frame)
+        middle_col.grid(row=0, column=1, sticky="n", padx=10)
+        
+        right_col = ttk.Frame(self.camera_controls_frame)
+        right_col.grid(row=0, column=2, sticky="n", padx=(10,0))
+        
+        # === LEFT COLUMN: Exposure Settings ===
+        ttk.Label(left_col, text="Shutter Speed (μs):").grid(row=0, column=0, sticky="w", pady=(0,5))
+        self.shutter_spinbox = ttk.Spinbox(left_col, from_=0, to=1000000, 
+                                          textvariable=self.shutter_speed, width=12)
+        self.shutter_spinbox.grid(row=1, column=0, sticky="w", pady=(0,2))
+        ttk.Label(left_col, text="(0 = auto)", foreground="#666", font=("TkDefaultFont", 8)).grid(row=2, column=0, sticky="w", pady=(0,10))
+        
+        ttk.Checkbutton(left_col, text="Auto Exposure", variable=self.ae_enable).grid(row=3, column=0, sticky="w", pady=(0,10))
+        
+        ttk.Label(left_col, text="ISO:").grid(row=4, column=0, sticky="w", pady=(0,5))
+        self.iso_combo = ttk.Combobox(left_col, textvariable=self.iso_value, state="readonly",
+                                      values=["Auto", "100", "200", "400", "800", "1600"], width=12)
+        self.iso_combo.grid(row=5, column=0, sticky="w", pady=(0,10))
+        
+        ttk.Label(left_col, text="Analogue Gain:").grid(row=6, column=0, sticky="w", pady=(0,5))
+        self.gain_scale = ttk.Scale(left_col, from_=1.0, to=16.0, variable=self.analogue_gain,
+                                    orient="horizontal", length=150)
+        self.gain_scale.grid(row=7, column=0, sticky="w", pady=(0,10))
+        
+        ttk.Label(left_col, text="EV Compensation:").grid(row=8, column=0, sticky="w", pady=(0,5))
+        self.ev_scale = ttk.Scale(left_col, from_=-2.0, to=2.0, variable=self.ev_compensation,
+                                 orient="horizontal", length=150)
+        self.ev_scale.grid(row=9, column=0, sticky="w", pady=(0,10))
+        
+        ttk.Label(left_col, text="Brightness:").grid(row=10, column=0, sticky="w", pady=(0,5))
+        self.brightness_scale = ttk.Scale(left_col, from_=-1.0, to=1.0, variable=self.brightness,
+                                         orient="horizontal", length=150)
+        self.brightness_scale.grid(row=11, column=0, sticky="w", pady=(0,2))
         self.brightness_value_var = tk.StringVar()
-        ttk.Label(self.camera_controls_frame, textvariable=self.brightness_value_var).grid(row=3, column=2, sticky="w", padx=(5, 0))
-
-        # Row 4: AWB and WB gains
-        ttk.Checkbutton(self.camera_controls_frame, text="Auto White Balance", variable=self.awb_enable).grid(row=4, column=0, sticky="w")
-        ttk.Label(self.camera_controls_frame, text="WB Red Gain:").grid(row=4, column=1, sticky="w")
-        self.wb_r_scale = ttk.Scale(
-            self.camera_controls_frame,
-            from_=0.5,
-            to=3.5,
-            variable=self.wb_red_gain,
-            orient="horizontal",
-            length=180,
-        )
-        self.wb_r_scale.grid(row=4, column=2, sticky="w", padx=(5, 0))
-        ttk.Label(self.camera_controls_frame, text="WB Blue Gain:").grid(row=4, column=3, sticky="w")
-        self.wb_b_scale = ttk.Scale(
-            self.camera_controls_frame,
-            from_=0.5,
-            to=3.5,
-            variable=self.wb_blue_gain,
-            orient="horizontal",
-            length=180,
-        )
-        self.wb_b_scale.grid(row=4, column=4, sticky="w", padx=(5, 0))
-
-        # Row 5: Contrast and Saturation
-        ttk.Label(self.camera_controls_frame, text="Contrast:").grid(row=5, column=0, sticky="w")
-        self.contrast_scale = ttk.Scale(
-            self.camera_controls_frame,
-            from_=0.0,
-            to=2.0,
-            variable=self.contrast,
-            orient="horizontal",
-            length=200,
-        )
-        self.contrast_scale.grid(row=5, column=1, sticky="w", padx=(5, 0))
-
-        ttk.Label(self.camera_controls_frame, text="Saturation:").grid(row=5, column=2, sticky="w")
-        self.saturation_scale = ttk.Scale(
-            self.camera_controls_frame,
-            from_=0.0,
-            to=2.0,
-            variable=self.saturation,
-            orient="horizontal",
-            length=200,
-        )
-        self.saturation_scale.grid(row=5, column=3, sticky="w", padx=(5, 0))
-
-        # Row 6: Sharpness
-        ttk.Label(self.camera_controls_frame, text="Sharpness:").grid(row=6, column=0, sticky="w")
-        self.sharpness_scale = ttk.Scale(
-            self.camera_controls_frame,
-            from_=0.0,
-            to=2.0,
-            variable=self.sharpness,
-            orient="horizontal",
-            length=200,
-        )
-        self.sharpness_scale.grid(row=6, column=1, sticky="w", padx=(5, 0))
-
-        # Row 7: Apply button
-        self.btn_apply_settings = ttk.Button(
-            self.camera_controls_frame,
-            text="Apply Settings",
-            command=self.apply_camera_settings,
-        )
-        self.btn_apply_settings.grid(row=7, column=0, columnspan=3, pady=(10, 0))
+        ttk.Label(left_col, textvariable=self.brightness_value_var, foreground="#666").grid(row=12, column=0, sticky="w")
+        
+        # === MIDDLE COLUMN: White Balance ===
+        ttk.Checkbutton(middle_col, text="Auto White Balance", variable=self.awb_enable).grid(row=0, column=0, sticky="w", pady=(0,10))
+        
+        ttk.Label(middle_col, text="WB Red Gain:").grid(row=1, column=0, sticky="w", pady=(0,5))
+        self.wb_r_scale = ttk.Scale(middle_col, from_=0.5, to=3.5, variable=self.wb_red_gain,
+                                    orient="horizontal", length=150)
+        self.wb_r_scale.grid(row=2, column=0, sticky="w", pady=(0,10))
+        
+        ttk.Label(middle_col, text="WB Blue Gain:").grid(row=3, column=0, sticky="w", pady=(0,5))
+        self.wb_b_scale = ttk.Scale(middle_col, from_=0.5, to=3.5, variable=self.wb_blue_gain,
+                                    orient="horizontal", length=150)
+        self.wb_b_scale.grid(row=4, column=0, sticky="w")
+        
+        # === RIGHT COLUMN: Image Adjustments ===
+        ttk.Label(right_col, text="Contrast:").grid(row=0, column=0, sticky="w", pady=(0,5))
+        self.contrast_scale = ttk.Scale(right_col, from_=0.0, to=2.0, variable=self.contrast,
+                                       orient="horizontal", length=150)
+        self.contrast_scale.grid(row=1, column=0, sticky="w", pady=(0,10))
+        
+        ttk.Label(right_col, text="Saturation:").grid(row=2, column=0, sticky="w", pady=(0,5))
+        self.saturation_scale = ttk.Scale(right_col, from_=0.0, to=2.0, variable=self.saturation,
+                                         orient="horizontal", length=150)
+        self.saturation_scale.grid(row=3, column=0, sticky="w", pady=(0,10))
+        
+        ttk.Label(right_col, text="Sharpness:").grid(row=4, column=0, sticky="w", pady=(0,5))
+        self.sharpness_scale = ttk.Scale(right_col, from_=0.0, to=2.0, variable=self.sharpness,
+                                        orient="horizontal", length=150)
+        self.sharpness_scale.grid(row=5, column=0, sticky="w")
+        
+        # Apply button spanning all columns
+        self.btn_apply_settings = ttk.Button(self.camera_controls_frame, text="Apply Settings",
+                                            command=self.apply_camera_settings)
+        self.btn_apply_settings.grid(row=1, column=0, columnspan=3, pady=(15, 0))
 
         # Keep a live readout of brightness value
         def update_brightness_display(*args):
@@ -1260,7 +1400,7 @@ appear much larger than the camera circle. Scale the final
         update_brightness_display()
 
         # Resolution controls
-        self.resolution_frame = ttk.LabelFrame(self.camera_settings_tab, text="Resolution", padding=10)
+        self.resolution_frame = ttk.LabelFrame(right_column, text="Resolution", padding=10)
         ttk.Label(self.resolution_frame, text="Preview Resolution:").grid(row=0, column=0, sticky="w")
         self.preview_res_combo = ttk.Combobox(
             self.resolution_frame,
@@ -1288,42 +1428,34 @@ appear much larger than the camera circle. Scale the final
         ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         # Camera info
-        self.camera_info_frame = ttk.LabelFrame(self.camera_settings_tab, text="Camera Information", padding=10)
+        self.camera_info_frame = ttk.LabelFrame(right_column, text="Camera Information", padding=10)
         self.camera_info_text = tk.Text(self.camera_info_frame, height=10, width=60, state="disabled")
         self.camera_info_text.grid(row=0, column=0, sticky="nsew")
         info_scrollbar = ttk.Scrollbar(self.camera_info_frame, orient="vertical", command=self.camera_info_text.yview)
         info_scrollbar.grid(row=0, column=1, sticky="ns")
         self.camera_info_text.config(yscrollcommand=info_scrollbar.set)
 
-        # Layout camera settings tab
-        self.camera_settings_tab.rowconfigure(2, weight=1)
-        self.camera_settings_tab.columnconfigure(0, weight=1)
-
-        self.camera_controls_frame.grid(row=0, column=0, padx=10, pady=5, sticky="ew")
-        self.resolution_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
-        self.camera_info_frame.grid(row=2, column=0, padx=10, pady=5, sticky="nsew")
+        # Layout right column (camera settings)
+        self.camera_preview_frame.pack(fill="x", pady=(0,5))
+        self.camera_controls_frame.pack(fill="x", pady=5)
+        self.resolution_frame.pack(fill="x", pady=5)
+        self.camera_info_frame.pack(fill="both", expand=True, pady=(5,0))
 
     def _layout_gui(self):
-        self.rowconfigure(0, weight=1)
-        self.columnconfigure(0, weight=1)
-        
-        self.notebook.grid(row=0, column=0, sticky="nsew", padx=10, pady=5)
-        
+        """Layout the main GUI components - converted to pack()"""
         # Status bar with window controls
         self.status_frame = ttk.Frame(self)
-        self.status_frame.columnconfigure(0, weight=1)
+        self.status_frame.pack(side="bottom", fill="x", padx=10, pady=(5,10))
         
-        self.status_bar.grid(row=0, column=0, sticky="ew", in_=self.status_frame)
+        self.status_bar.pack(side="left", fill="x", expand=True, in_=self.status_frame)
         
         # Add always-on-top toggle button (starts as pinned)
         self.topmost_button = ttk.Button(self.status_frame, text="📌", width=3, 
                                         command=self._toggle_topmost_display)
-        self.topmost_button.grid(row=0, column=1, sticky="e", padx=(5,0))
+        self.topmost_button.pack(side="right", padx=(5,0), in_=self.status_frame)
         
         # Update initial status to show window is pinned
         self.after(100, self._update_initial_status)
-        
-        self.status_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(5,10))
 
     def toggle_preview(self):
         """Toggle camera preview for both manual and calibration tabs"""
@@ -1339,11 +1471,15 @@ appear much larger than the camera circle. Scale the final
             self.btn_preview.config(text="Stop Preview")
             if hasattr(self, 'cal_btn_preview'):
                 self.cal_btn_preview.config(text="Stop Preview")
+            if hasattr(self, 'camera_preview_btn'):
+                self.camera_preview_btn.config(text="Stop Preview")
         else:
             self.stop_preview()
             self.btn_preview.config(text="Start Preview")
             if hasattr(self, 'cal_btn_preview'):
                 self.cal_btn_preview.config(text="Start Preview")
+            if hasattr(self, 'camera_preview_btn'):
+                self.camera_preview_btn.config(text="Start Preview")
         
         # Update manual tab status
         self._update_manual_status()
@@ -1399,9 +1535,11 @@ appear much larger than the camera circle. Scale the final
             photo = ImageTk.PhotoImage(image)
             self.preview_image = photo
             
-            # Update both preview labels
+            # Update all preview labels
             self.preview_label.config(image=photo)
             self.cal_preview_label.config(image=photo)
+            if hasattr(self, 'camera_preview_label'):
+                self.camera_preview_label.config(image=photo)
             
             # Throttle updates a bit to reduce CPU load
             self.after(150, self._update_preview_frame)
@@ -2210,6 +2348,54 @@ appear much larger than the camera circle. Scale the final
             self.move_to_angle(target_angle)
         threading.Thread(target=_worker, daemon=True).start()
     
+    def move_to_elevation(self, target_elevation):
+        """Move tilt motor to specific elevation angle (synchronous).
+        
+        Args:
+            target_elevation: Target angle in degrees (positive = tilt up)
+            
+        Returns:
+            bool: True if movement succeeded, False otherwise
+        """
+        current_elevation = self.motor3_position_deg
+        tilt_needed = target_elevation - current_elevation
+        
+        if abs(tilt_needed) > 0.01:
+            direction = "UP" if tilt_needed > 0 else "DOWN"
+            amount = abs(tilt_needed)
+            
+            command = f"TILT 3 {amount} {direction}"
+            if self.send_motor_command(command, wait_for_done=True):
+                self.motor3_position_deg = target_elevation
+                self.after(0, self.motor3_pos_var.set, f"{target_elevation:.1f}°")
+                self.after(0, self.status_var.set, f"Tilted to {target_elevation}°")
+                return True
+            else:
+                self.after(0, self.status_var.set, f"Failed to tilt to {target_elevation}°")
+                return False
+        return True
+    
+    def _update_scan_mode_ui(self):
+        """Show/hide spherical scan settings based on scan mode selection"""
+        if self.scan_mode.get() == "spherical":
+            # Show spherical settings
+            self.spherical_settings_label.grid(row=3, column=0, sticky="w")
+            self.spherical_min_label.grid(row=3, column=1, sticky="w", padx=(5,2))
+            self.spherical_min_spinbox.grid(row=3, column=1, sticky="w", padx=(30,0))
+            self.spherical_max_label.grid(row=3, column=1, sticky="w", padx=(100,0))
+            self.spherical_max_spinbox.grid(row=3, column=1, sticky="w", padx=(135,0))
+            self.spherical_steps_label.grid(row=3, column=2, sticky="w", padx=(10,2))
+            self.spherical_steps_spinbox.grid(row=3, column=2, sticky="w", padx=(55,0))
+        else:
+            # Hide spherical settings
+            self.spherical_settings_label.grid_remove()
+            self.spherical_min_label.grid_remove()
+            self.spherical_min_spinbox.grid_remove()
+            self.spherical_max_label.grid_remove()
+            self.spherical_max_spinbox.grid_remove()
+            self.spherical_steps_label.grid_remove()
+            self.spherical_steps_spinbox.grid_remove()
+    
     def interpolate_focus_position(self, angle, stack_position):
         """Interpolate focus position for given angle and stack position.
         
@@ -2423,9 +2609,11 @@ appear much larger than the camera circle. Scale the final
             os.makedirs(session_dir, exist_ok=True)
             
             # Save capture metadata
+            scan_mode = self.scan_mode.get()
             metadata = {
                 "specimen_name": self.specimen_name.get(),
                 "timestamp": timestamp,
+                "scan_mode": scan_mode,
                 # Historical keys (legacy naming)
                 "stacks": self.stacks_count.get(),
                 "shots_per_stack": self.shots_per_stack.get(),
@@ -2446,6 +2634,14 @@ appear much larger than the camera circle. Scale the final
                 }
             }
             
+            # Add spherical-specific metadata
+            if scan_mode == "spherical":
+                metadata["spherical_settings"] = {
+                    "elevation_min": float(self.elevation_min.get()),
+                    "elevation_max": float(self.elevation_max.get()),
+                    "elevation_steps": int(self.elevation_steps.get())
+                }
+            
             with open(os.path.join(session_dir, "metadata.json"), 'w') as f:
                 json.dump(metadata, f, indent=2)
             
@@ -2458,190 +2654,17 @@ appear much larger than the camera circle. Scale the final
             self.after(0, self.apply_camera_settings)
             time.sleep(1)
             
-            total_images = self.stacks_count.get() * self.shots_per_stack.get()
-            image_count = 0
-            
-            self.after(0, lambda: self.log_capture(f"Starting capture sequence: {total_images} images"))
-            
             # Pause preview updates during capture to reduce contention
             self.preview_update_active = False
-
-            # Strict waterfall order
-            # Interpret 'stacks_count' as number of perspectives (angles) in full 360°
-            # and 'shots_per_stack' as number of focus slices per angle.
-            angle_step = 360.0 / max(1, self.stacks_count.get())
             
-            # Determine zero-padding width for stack folders to match consolidated XMP naming
-            try:
-                perspectives_total = int(self.stacks_count.get())
-            except Exception:
-                perspectives_total = 0
-            stack_pad_width = max(2, len(str(max(0, perspectives_total - 1))))
-
-            # Move to starting positions
-            if not self.move_to_angle(0.0):
-                raise RuntimeError("Failed to home turntable to 0°")
-
-            # Perspective-major loop: for each angle, capture all focus slices
-            for perspective in range(self.stacks_count.get()):
-                if not self.capture_running:
-                    break
-
-                angle = perspective * angle_step
-                # Turntable to angle
-                if not self.move_to_angle(angle):
-                    self.after(0, self.log_capture, f"Aborting: Failed to move to angle {angle}")
-                    break
-
-                # For each focus slice at this angle
-                for slice_idx in range(self.shots_per_stack.get()):
-                    if not self.capture_running:
-                        break
-
-                    stack_dir = os.path.join(session_dir, f"stack_{perspective:0{stack_pad_width}d}")
-                    os.makedirs(stack_dir, exist_ok=True)
-
-                    # Map slice index to 0.0..1.0 focus position
-                    stack_position = (slice_idx / (self.shots_per_stack.get() - 1)) if self.shots_per_stack.get() > 1 else 0.0
-                    focus_position = self.interpolate_focus_position(angle, stack_position)
-
-                    # Move focus
-                    if not self.move_to_focus_position(focus_position):
-                        self.after(0, self.log_capture, f"Aborting: Failed to move focus to {focus_position:.2f}mm")
-                        break
-
-                    # Settle
-                    time.sleep(self.settle_delay.get())
-
-                    # Capture
-                    filename = f"stack_{perspective:0{stack_pad_width}d}_shot_{slice_idx:04d}_angle_{angle:06.2f}.{self.image_format.get().lower()}"
-                    filepath = os.path.join(stack_dir, filename)
-                    self.capture_image(filepath)
-
-                    image_count += 1
-                    progress = (image_count / total_images) * 100
-                    self.after(0, self.capture_progress.set, progress)
-                    self.after(0, self.progress_label_var.set, f"Captured {image_count}/{total_images} images")
-                    if image_count % 10 == 0:
-                        self.after(0, self.log_capture, f"Captured {image_count} images")
-
-                # Generate XMP sidecar for this stack (perspective)
-                # This will be used for the flattened image from this angle
-                try:
-                    # Calculate camera pose for this angle
-                    lens_dist = float(self.lens_to_object_mm.get())
-                    rail_angle = float(self.rail_to_horizon_deg.get())
-                    position_scale = float(self.xmp_position_scale.get())
-                    
-                    # Apply position scaling to distance BEFORE calculating pose
-                    # This ensures rotation matrix is calculated for the scaled position
-                    scaled_lens_dist = lens_dist * position_scale / 1000.0  # Convert mm to meters and apply scaling
-                    
-                    # Turntable rotates CCW, so camera equivalent is CW orbit (negative angle)
-                    camera_angle = -angle
-                    pose = ring_pose(scaled_lens_dist, rail_angle, camera_angle)
-                    
-                    # Create XMP file for the stack (to be used with flattened image)
-                    stack_xmp_filename = f"stack_{perspective:0{stack_pad_width}d}_angle_{angle:06.2f}.xmp"
-                    stack_xmp_path = os.path.join(stack_dir, stack_xmp_filename)
-                    
-                    # Gather distortion coefficients
-                    distortion_coeffs = (
-                        self.distortion_k1.get(),
-                        self.distortion_k2.get(),
-                        self.distortion_k3.get(),
-                        self.distortion_p1.get(),
-                        self.distortion_p2.get(),
-                        self.distortion_k4.get()
-                    )
-                    
-                    # Write XMP with pose data and camera calibration
-                    write_xmp_sidecar(
-                        stack_xmp_path.replace('.xmp', '.jpg'),
-                        pose,
-                        lens_dist,  # Original distance for metadata
-                        rail_angle,
-                        angle,
-                        perspective,
-                        focal_length_35mm=VERIFIED_FOCAL_LENGTH_35MM,
-                        distortion_model=VERIFIED_DISTORTION_MODEL,
-                        skew=VERIFIED_SKEW,
-                        aspect_ratio=VERIFIED_ASPECT_RATIO,
-                        principal_point_u=VERIFIED_PRINCIPAL_POINT_U,
-                        principal_point_v=VERIFIED_PRINCIPAL_POINT_V,
-                        distortion_coefficients=VERIFIED_DISTORTION_COEFFS,
-                        position_scale=1.0,  # No scaling - positions already in meters
-                        pose_prior=VERIFIED_POSE_PRIOR,
-                        calibration_prior=VERIFIED_CALIB_PRIOR,
-                    )
-                    
-                    self.after(0, self.log_capture, f"Generated XMP for stack {perspective} at {angle:.2f}°")
-                    
-                except Exception as e:
-                    self.after(0, self.log_capture, f"Warning: Failed to generate XMP for stack {perspective}: {e}")
-            
-            # Complete - consolidate XMP files
-            if self.capture_running:
-                try:
-                    # Create consolidated XMP directory
-                    xmp_dir = os.path.join(session_dir, "xmp_files")
-                    os.makedirs(xmp_dir, exist_ok=True)
-                    
-                    # Determine zero-padding width for consolidated filenames
-                    # 2 digits for < 100, 3 digits for < 1000, etc. (minimum 2)
-                    try:
-                        perspectives_total = int(self.stacks_count.get())
-                    except Exception:
-                        perspectives_total = 0
-                    pad_width = max(2, len(str(max(0, perspectives_total - 1))))
-
-                    # Copy all XMP files to consolidated directory
-                    xmp_count = 0
-                    for perspective in range(self.stacks_count.get()):
-                        angle = perspective * angle_step
-                        stack_dir = os.path.join(session_dir, f"stack_{perspective:0{stack_pad_width}d}")
-                        
-                        # Find XMP file in stack directory
-                        xmp_filename = f"stack_{perspective:0{stack_pad_width}d}_angle_{angle:06.2f}.xmp"
-                        source_xmp = os.path.join(stack_dir, xmp_filename)
-                        
-                        if os.path.exists(source_xmp):
-                            # Create consolidated filename matching stack directory naming exactly
-                            # Use dynamic padding to match total perspectives (e.g., 3 digits for 100-999)
-                            consolidated_filename = f"stack_{perspective:0{pad_width}d}.xmp"
-                            dest_xmp = os.path.join(xmp_dir, consolidated_filename)
-                            
-                            # Copy XMP file
-                            import shutil
-                            shutil.copy2(source_xmp, dest_xmp)
-                            xmp_count += 1
-                    
-                    # Copy helper script and README to session directory for portability
-                    import shutil
-                    script_dir = os.path.dirname(os.path.abspath(__file__))
-                    
-                    # Copy helper script
-                    helper_script_source = os.path.join(script_dir, "templates", "rename_xmp_for_rc.py")
-                    if os.path.exists(helper_script_source):
-                        helper_script_dest = os.path.join(session_dir, "rename_xmp_for_rc.py")
-                        shutil.copy2(helper_script_source, helper_script_dest)
-                        self.after(0, lambda: self.log_capture("Helper script copied to session directory"))
-                    
-                    # Copy README guide
-                    readme_source = os.path.join(script_dir, "templates", "SESSION_README.md")
-                    if os.path.exists(readme_source):
-                        readme_dest = os.path.join(session_dir, "README.md")
-                        shutil.copy2(readme_source, readme_dest)
-                        self.after(0, lambda: self.log_capture("Workflow README copied to session directory"))
-                    
-                    self.after(0, lambda: self.log_capture(f"Consolidated {xmp_count} XMP files to: {xmp_dir}"))
-                    
-                except Exception as e:
-                    self.after(0, lambda: self.log_capture(f"Warning: Failed to consolidate XMP files: {e}"))
-                
-                self.after(0, lambda: self.log_capture(f"Capture sequence complete! {image_count} images saved to {session_dir}"))
-                self.after(0, lambda: messagebox.showinfo("Complete", f"Capture sequence complete!\n{image_count} images saved.\nXMP files consolidated in xmp_files directory."))
-            
+            # Branch based on scan mode
+            if scan_mode == "ring":
+                self._run_ring_capture(session_dir, scan_mode)
+            elif scan_mode == "spherical":
+                self._run_spherical_capture(session_dir, scan_mode)
+            else:
+                raise ValueError(f"Unknown scan mode: {scan_mode}")
+        
         except Exception as e:
             self.after(0, lambda: self.log_capture(f"Capture error: {e}"))
             self.after(0, lambda: messagebox.showerror("Error", f"Capture failed: {e}"))
@@ -2653,6 +2676,340 @@ appear much larger than the camera circle. Scale the final
                 self.preview_update_active = True
             self.after(0, lambda: self.btn_start_capture.config(state="normal"))
             self.after(0, lambda: self.btn_stop_capture.config(state="disabled"))
+    
+    def _run_ring_capture(self, session_dir, scan_mode):
+        """Execute ring scan capture sequence (horizontal plane only)"""
+        total_images = self.stacks_count.get() * self.shots_per_stack.get()
+        image_count = 0
+        
+        self.after(0, lambda: self.log_capture(f"Starting ring scan: {total_images} images"))
+
+        # Strict waterfall order
+        # Interpret 'stacks_count' as number of perspectives (angles) in full 360°
+        # and 'shots_per_stack' as number of focus slices per angle.
+        angle_step = 360.0 / max(1, self.stacks_count.get())
+        
+        # Determine zero-padding width for stack folders to match consolidated XMP naming
+        try:
+            perspectives_total = int(self.stacks_count.get())
+        except Exception:
+            perspectives_total = 0
+        stack_pad_width = max(2, len(str(max(0, perspectives_total - 1))))
+
+        # Move to starting positions
+        if not self.move_to_angle(0.0):
+            raise RuntimeError("Failed to home turntable to 0°")
+
+        # Perspective-major loop: for each angle, capture all focus slices
+        for perspective in range(self.stacks_count.get()):
+            if not self.capture_running:
+                break
+
+            angle = perspective * angle_step
+            # Turntable to angle
+            if not self.move_to_angle(angle):
+                self.after(0, self.log_capture, f"Aborting: Failed to move to angle {angle}")
+                break
+
+            # For each focus slice at this angle
+            for slice_idx in range(self.shots_per_stack.get()):
+                if not self.capture_running:
+                    break
+
+                stack_dir = os.path.join(session_dir, f"stack_{perspective:0{stack_pad_width}d}")
+                os.makedirs(stack_dir, exist_ok=True)
+
+                # Map slice index to 0.0..1.0 focus position
+                stack_position = (slice_idx / (self.shots_per_stack.get() - 1)) if self.shots_per_stack.get() > 1 else 0.0
+                focus_position = self.interpolate_focus_position(angle, stack_position)
+
+                # Move focus
+                if not self.move_to_focus_position(focus_position):
+                    self.after(0, self.log_capture, f"Aborting: Failed to move focus to {focus_position:.2f}mm")
+                    break
+
+                # Settle
+                time.sleep(self.settle_delay.get())
+
+                # Capture
+                filename = f"stack_{perspective:0{stack_pad_width}d}_shot_{slice_idx:04d}_angle_{angle:06.2f}.{self.image_format.get().lower()}"
+                filepath = os.path.join(stack_dir, filename)
+                self.capture_image(filepath)
+
+                image_count += 1
+                progress = (image_count / total_images) * 100
+                self.after(0, self.capture_progress.set, progress)
+                self.after(0, self.progress_label_var.set, f"Captured {image_count}/{total_images} images")
+                if image_count % 10 == 0:
+                    self.after(0, self.log_capture, f"Captured {image_count} images")
+
+            # Generate XMP sidecar for this stack (perspective)
+            self._generate_ring_xmp(session_dir, perspective, angle, stack_pad_width)
+        
+        # Consolidate XMP files
+        self._consolidate_xmp_files(session_dir, image_count, angle_step, stack_pad_width)
+    
+    def _generate_ring_xmp(self, session_dir, perspective, angle, stack_pad_width):
+        """Generate XMP sidecar for ring scan perspective"""
+        try:
+            # Calculate camera pose for this angle
+            lens_dist = float(self.lens_to_object_mm.get())
+            rail_angle = float(self.rail_to_horizon_deg.get())
+            position_scale = float(self.xmp_position_scale.get())
+            
+            # Apply position scaling to distance BEFORE calculating pose
+            scaled_lens_dist = lens_dist * position_scale / 1000.0
+            
+            # Turntable rotates CCW, so camera equivalent is CW orbit (negative angle)
+            camera_angle = -angle
+            pose = ring_pose(scaled_lens_dist, rail_angle, camera_angle)
+            
+            # Create XMP file for the stack
+            stack_dir = os.path.join(session_dir, f"stack_{perspective:0{stack_pad_width}d}")
+            stack_xmp_filename = f"stack_{perspective:0{stack_pad_width}d}_angle_{angle:06.2f}.xmp"
+            stack_xmp_path = os.path.join(stack_dir, stack_xmp_filename)
+            
+            # Gather distortion coefficients
+            distortion_coeffs = (
+                self.distortion_k1.get(),
+                self.distortion_k2.get(),
+                self.distortion_k3.get(),
+                self.distortion_p1.get(),
+                self.distortion_p2.get(),
+                self.distortion_k4.get()
+            )
+            
+            # Write XMP with pose data and camera calibration
+            write_xmp_sidecar(
+                stack_xmp_path.replace('.xmp', '.jpg'),
+                pose,
+                lens_dist,
+                rail_angle,
+                angle,
+                perspective,
+                focal_length_35mm=VERIFIED_FOCAL_LENGTH_35MM,
+                distortion_model=VERIFIED_DISTORTION_MODEL,
+                skew=VERIFIED_SKEW,
+                aspect_ratio=VERIFIED_ASPECT_RATIO,
+                principal_point_u=VERIFIED_PRINCIPAL_POINT_U,
+                principal_point_v=VERIFIED_PRINCIPAL_POINT_V,
+                distortion_coefficients=VERIFIED_DISTORTION_COEFFS,
+                position_scale=1.0,
+                pose_prior=VERIFIED_POSE_PRIOR,
+                calibration_prior=VERIFIED_CALIB_PRIOR,
+            )
+            
+            self.after(0, self.log_capture, f"Generated XMP for stack {perspective} at {angle:.2f}°")
+            
+        except Exception as e:
+            self.after(0, self.log_capture, f"Warning: Failed to generate XMP for stack {perspective}: {e}")
+    
+    def _generate_spherical_xmp(self, session_dir, perspective_idx, azimuth, elevation, stack_pad_width):
+        """Generate XMP sidecar for spherical scan perspective"""
+        try:
+            lens_dist = float(self.lens_to_object_mm.get())
+            position_scale = float(self.xmp_position_scale.get())
+            
+            # Use spherical pose function
+            scaled_radius = lens_dist * position_scale / 1000.0
+            pose = spherical_pose(scaled_radius, azimuth, elevation)
+            
+            # Create XMP file for the stack
+            stack_dir = os.path.join(session_dir, f"stack_{perspective_idx:0{stack_pad_width}d}")
+            stack_xmp_filename = f"stack_{perspective_idx:0{stack_pad_width}d}_elev_{elevation:+06.2f}_azim_{azimuth:06.2f}.xmp"
+            stack_xmp_path = os.path.join(stack_dir, stack_xmp_filename)
+            
+            # Gather distortion coefficients
+            distortion_coeffs = (
+                self.distortion_k1.get(),
+                self.distortion_k2.get(),
+                self.distortion_k3.get(),
+                self.distortion_p1.get(),
+                self.distortion_p2.get(),
+                self.distortion_k4.get()
+            )
+            
+            # Write XMP with pose data and camera calibration
+            write_xmp_sidecar(
+                stack_xmp_path.replace('.xmp', '.jpg'),
+                pose,
+                lens_dist,
+                elevation,  # Use elevation as rail_to_horizon equivalent
+                azimuth,
+                perspective_idx,
+                focal_length_35mm=VERIFIED_FOCAL_LENGTH_35MM,
+                distortion_model=VERIFIED_DISTORTION_MODEL,
+                skew=VERIFIED_SKEW,
+                aspect_ratio=VERIFIED_ASPECT_RATIO,
+                principal_point_u=VERIFIED_PRINCIPAL_POINT_U,
+                principal_point_v=VERIFIED_PRINCIPAL_POINT_V,
+                distortion_coefficients=VERIFIED_DISTORTION_COEFFS,
+                position_scale=1.0,
+                pose_prior=VERIFIED_POSE_PRIOR,
+                calibration_prior=VERIFIED_CALIB_PRIOR,
+            )
+            
+            self.after(0, self.log_capture, f"Generated XMP for stack {perspective_idx} (elev={elevation:.1f}°, azim={azimuth:.1f}°)")
+            
+        except Exception as e:
+            self.after(0, self.log_capture, f"Warning: Failed to generate XMP for stack {perspective_idx}: {e}")
+    
+    def _consolidate_xmp_files(self, session_dir, image_count, angle_step, stack_pad_width):
+        """Consolidate XMP files into central directory"""
+        if not self.capture_running:
+            return
+        
+        try:
+            # Create consolidated XMP directory
+            xmp_dir = os.path.join(session_dir, "xmp_files")
+            os.makedirs(xmp_dir, exist_ok=True)
+            
+            # Determine zero-padding width for consolidated filenames
+            perspectives_total = self.stacks_count.get()
+            pad_width = max(2, len(str(max(0, perspectives_total - 1))))
+
+            # Copy all XMP files to consolidated directory
+            xmp_count = 0
+            for perspective in range(perspectives_total):
+                angle = perspective * angle_step
+                stack_dir = os.path.join(session_dir, f"stack_{perspective:0{stack_pad_width}d}")
+                
+                # Find XMP file in stack directory (matches filename pattern)
+                for file in os.listdir(stack_dir):
+                    if file.endswith('.xmp'):
+                        source_xmp = os.path.join(stack_dir, file)
+                        # Create consolidated filename matching stack directory naming
+                        consolidated_filename = f"stack_{perspective:0{pad_width}d}.xmp"
+                        dest_xmp = os.path.join(xmp_dir, consolidated_filename)
+                        
+                        import shutil
+                        shutil.copy2(source_xmp, dest_xmp)
+                        xmp_count += 1
+                        break
+            
+            # Copy helper script and README to session directory
+            import shutil
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            # Copy helper script if available
+            helper_script_source = os.path.join(script_dir, "templates", "rename_xmp_for_rc.py")
+            if os.path.exists(helper_script_source):
+                helper_script_dest = os.path.join(session_dir, "rename_xmp_for_rc.py")
+                shutil.copy2(helper_script_source, helper_script_dest)
+                self.after(0, lambda: self.log_capture("Helper script copied to session directory"))
+            
+            # Copy README guide
+            readme_source = os.path.join(script_dir, "templates", "SESSION_README.md")
+            if os.path.exists(readme_source):
+                readme_dest = os.path.join(session_dir, "README.md")
+                shutil.copy2(readme_source, readme_dest)
+                self.after(0, lambda: self.log_capture("Workflow README copied to session directory"))
+            
+            self.after(0, lambda: self.log_capture(f"Consolidated {xmp_count} XMP files to: {xmp_dir}"))
+            
+        except Exception as e:
+            self.after(0, lambda: self.log_capture(f"Warning: Failed to consolidate XMP files: {e}"))
+        
+        self.after(0, lambda: self.log_capture(f"Capture sequence complete! {image_count} images saved to {session_dir}"))
+        self.after(0, lambda: messagebox.showinfo("Complete", f"Capture sequence complete!\n{image_count} images saved.\nXMP files consolidated in xmp_files directory."))
+    
+    def _run_spherical_capture(self, session_dir, scan_mode):
+        """Execute spherical/spiral scan capture sequence"""
+        # Calculate scan parameters
+        elevation_min = float(self.elevation_min.get())
+        elevation_max = float(self.elevation_max.get())
+        elevation_steps_count = int(self.elevation_steps.get())
+        azimuth_steps_count = int(self.stacks_count.get())
+        focus_slices = int(self.shots_per_stack.get())
+        
+        # Generate elevation angles
+        if elevation_steps_count == 1:
+            elevations = [(elevation_min + elevation_max) / 2.0]
+        else:
+            elevation_step = (elevation_max - elevation_min) / (elevation_steps_count - 1)
+            elevations = [elevation_min + i * elevation_step for i in range(elevation_steps_count)]
+        
+        azimuth_step = 360.0 / max(1, azimuth_steps_count)
+        
+        total_images = elevation_steps_count * azimuth_steps_count * focus_slices
+        image_count = 0
+        
+        self.after(0, lambda: self.log_capture(f"Starting spherical scan: {total_images} images"))
+        self.after(0, lambda: self.log_capture(f"Elevations: {elevations}"))
+        
+        # Determine padding width
+        perspective_total = elevation_steps_count * azimuth_steps_count
+        stack_pad_width = max(2, len(str(max(0, perspective_total - 1))))
+        
+        # Move to starting positions
+        if not self.move_to_angle(0.0):
+            raise RuntimeError("Failed to home turntable to 0°")
+        if not self.move_to_elevation(elevations[0]):
+            raise RuntimeError(f"Failed to move to starting elevation {elevations[0]}°")
+        
+        # Elevation-major loop (outer): for each elevation
+        perspective_idx = 0
+        for elev_idx, elevation in enumerate(elevations):
+            if not self.capture_running:
+                break
+            
+            # Move to elevation
+            if not self.move_to_elevation(elevation):
+                self.after(0, lambda e=elevation: self.log_capture(f"Aborting: Failed to tilt to {e}°"))
+                break
+            
+            self.after(0, lambda e=elevation, i=elev_idx: self.log_capture(f"Elevation {i+1}/{len(elevations)}: {e:.1f}°"))
+            
+            # Azimuth loop (middle): for each angle around turntable
+            for azimuth_idx in range(azimuth_steps_count):
+                if not self.capture_running:
+                    break
+                
+                azimuth = azimuth_idx * azimuth_step
+                
+                # Move turntable
+                if not self.move_to_angle(azimuth):
+                    self.after(0, lambda a=azimuth: self.log_capture(f"Aborting: Failed to move to azimuth {a}°"))
+                    break
+                
+                # Focus loop (inner): for each focus slice
+                for slice_idx in range(focus_slices):
+                    if not self.capture_running:
+                        break
+                    
+                    stack_dir = os.path.join(session_dir, f"stack_{perspective_idx:0{stack_pad_width}d}")
+                    os.makedirs(stack_dir, exist_ok=True)
+                    
+                    # Map slice index to 0.0..1.0 focus position
+                    stack_position = (slice_idx / (focus_slices - 1)) if focus_slices > 1 else 0.0
+                    focus_position = self.interpolate_focus_position(azimuth, stack_position)
+                    
+                    # Move focus
+                    if not self.move_to_focus_position(focus_position):
+                        self.after(0, lambda fp=focus_position: self.log_capture(f"Aborting: Failed to move focus to {fp:.2f}mm"))
+                        break
+                    
+                    # Settle
+                    time.sleep(self.settle_delay.get())
+                    
+                    # Capture
+                    filename = f"stack_{perspective_idx:0{stack_pad_width}d}_shot_{slice_idx:04d}_elev_{elevation:+06.2f}_azim_{azimuth:06.2f}.{self.image_format.get().lower()}"
+                    filepath = os.path.join(stack_dir, filename)
+                    self.capture_image(filepath)
+                    
+                    image_count += 1
+                    progress = (image_count / total_images) * 100
+                    self.after(0, self.capture_progress.set, progress)
+                    self.after(0, self.progress_label_var.set, f"Captured {image_count}/{total_images} images")
+                    if image_count % 10 == 0:
+                        self.after(0, lambda ic=image_count: self.log_capture(f"Captured {ic} images"))
+                
+                # Generate XMP for this perspective
+                self._generate_spherical_xmp(session_dir, perspective_idx, azimuth, elevation, stack_pad_width)
+                perspective_idx += 1
+        
+        # Consolidate XMP files - use azimuth_step for consistency
+        self._consolidate_xmp_files(session_dir, image_count, azimuth_step, stack_pad_width)
     
     def move_to_focus_position(self, target_position):
         """Move motor 2 to specific position"""
@@ -2896,6 +3253,210 @@ appear much larger than the camera circle. Scale the final
                 self.status_var.set("Failed to move motor 2")
         except ValueError:
             self.status_var.set("Invalid step size for Motor 2")
+    
+    def cal_motor3_up(self):
+        """Motor 3 tilt up control for calibration tab"""
+        try:
+            step = float(self.cal_motor3_step_var.get())
+            command = f"TILT 3 {step} UP"
+            
+            if self.send_motor_command(command):
+                self.motor3_position_deg += step
+                self.motor3_pos_var.set(f"{self.motor3_position_deg:.1f}°")
+                self.status_var.set(f"Motor 3: Tilted {step}° up")
+            else:
+                self.status_var.set("Failed to tilt motor 3")
+        except ValueError:
+            self.status_var.set("Invalid step size for Motor 3")
+
+    def cal_motor3_down(self):
+        """Motor 3 tilt down control for calibration tab"""
+        try:
+            step = float(self.cal_motor3_step_var.get())
+            command = f"TILT 3 {step} DOWN"
+            
+            if self.send_motor_command(command):
+                self.motor3_position_deg -= step
+                self.motor3_pos_var.set(f"{self.motor3_position_deg:.1f}°")
+                self.status_var.set(f"Motor 3: Tilted {step}° down")
+            else:
+                self.status_var.set("Failed to tilt motor 3")
+        except ValueError:
+            self.status_var.set("Invalid step size for Motor 3")
+    
+    def _load_manual_content(self):
+        """Load user manual content into help panel"""
+        manual_text = """3D SCANNER USER MANUAL
+
+=== QUICK START ===
+
+1. SETUP
+   - Connect Arduino via USB
+   - Connect Pi Camera
+   - Verify motors move correctly in Manual Control tab
+
+2. CALIBRATION (Focus Envelope)
+   - Go to Calibration tab
+   - Click "Start Calibration"
+   - At each angle (0°, 90°, 180°, 270°):
+     * Move focus motor to NEAR limit (closest to camera)
+     * Click "Capture Position"
+     * Move focus motor to FAR limit (farthest from camera)
+     * Click "Capture Position"
+     * Click "Next Step"
+   - Click "Save Calibration" when complete
+
+3. CAMERA SETTINGS
+   - Set exposure, gain, white balance in Camera Settings tab
+   - Configure XMP calibration parameters in Calibration tab
+   - Choose position scale preset based on specimen size
+
+4. CAPTURE
+   - Enter specimen name
+   - Set number of perspectives (angles around turntable)
+   - Set focus slices per perspective
+   - Click "Start Capture"
+   - Images saved to output_dir/specimen_name/session_YYYYMMDD/
+
+=== MOTOR CONTROLS ===
+
+Motor 1 (Turntable):
+  - CCW/CW buttons rotate specimen
+  - Use "Reverse Direction" toggle if motors are backwards
+  - Zero button resets position counter
+
+Motor 2 (Focus/Linear):
+  - Forward/Backward moves camera closer/farther
+  - Home button returns to limit switch (back position)
+  - Used for focus stacking
+
+Motor 3 (Tilt):
+  - Up/Down tilts camera angle
+  - Zero button resets position counter
+  - Currently direct-drive (consider geared motor for long holds)
+
+=== XMP CALIBRATION ===
+
+LENS TO OBJECT:
+  Measure distance from camera lens front to specimen center
+  in millimeters using ruler or calipers
+
+FOCAL LENGTH (35mm equiv):
+  - Pi HQ Camera (6mm lens): ~50mm
+  - Pi HQ Camera (16mm lens): ~130mm
+  - Pi Camera V2: ~29mm
+  Formula: 35mm_equiv = actual_focal × (36 / sensor_width_mm)
+
+POSITION SCALE PRESET:
+  - Tiny (1-5mm): Insects, coins, small jewelry → scale 100,000
+  - Small (5-20mm): Large insects, small fossils → scale 20,000
+  - Medium (20-50mm): Rocks, larger fossils → scale 5,000
+  
+  Note: This keeps XMP coordinate precision manageable.
+  Scale model back to real size in RealityCapture after reconstruction.
+
+PRINCIPAL POINT / ASPECT RATIO / SKEW:
+  Leave at defaults (0, 0, 1.0, 0) unless you have calibration data
+
+DISTORTION COEFFICIENTS:
+  Leave all at 0.0 unless you have OpenCV calibration data
+  Wrong values are worse than no values!
+  To calibrate: use checkerboard pattern + OpenCV calibrateCamera()
+
+=== FOCUS STACKING ===
+
+The scanner captures multiple images at different focus distances
+at each turntable angle. This creates a "focus stack" that can be
+combined in RealityCapture or other software.
+
+Focus calibration stores NEAR and FAR limits at cardinal angles
+(0°, 90°, 180°, 270°). The software interpolates between these
+for other angles to account for specimen shape variations.
+
+Tips:
+  - More focus slices = better depth coverage but longer scan time
+  - 3-5 slices typical for small specimens
+  - Ensure entire specimen is in focus across all angles
+
+=== FILE OUTPUT ===
+
+Directory structure:
+  output_dir/
+    specimen_name/
+      session_YYYYMMDD_HHMMSS/
+        metadata.json
+        stack_00/
+          stack_00_shot_000_angle_000.00.jpg
+          stack_00_shot_000_angle_000.00.xmp
+          stack_00_shot_001_angle_000.00.jpg
+          ...
+        stack_01/
+          ...
+
+XMP files contain camera pose data for RealityScan/RealityCapture.
+Import the entire session folder to automatically load poses.
+
+=== TROUBLESHOOTING ===
+
+Motors not moving:
+  - Check serial connection (status bar shows "Connected")
+  - Verify Arduino loaded with scanner_controller.ino
+  - Check enable pin polarity (TB6600: ENABLE_ACTIVE_HIGH = true)
+  - Increase motor current if stuttering
+
+Camera errors:
+  - Ensure camera enabled in raspi-config
+  - Check cable connection
+  - Stop preview before starting capture
+
+Position drift:
+  - Use "Home" button on linear rail to re-zero
+  - Zero all motors before capture sequence
+  - Consider limit switches for automatic homing
+
+Tilt motor overheating:
+  - Check counterbalance is properly adjusted
+  - Consider upgrading to geared stepper (5:1 planetary)
+  - Reduce settle time if using direct-drive
+
+XMP import issues:
+  - Verify all XMP files have matching image files
+  - Check position scale isn't causing coordinate overflow
+  - Ensure focal length is reasonable for camera type
+
+=== KEYBOARD SHORTCUTS ===
+
+(None currently implemented - use mouse/touch)
+
+=== SUPPORT ===
+
+For bugs, feature requests, or questions:
+https://github.com/reprahkcin/scanner-companion"""
+        
+        self.help_text.insert("1.0", manual_text)
+    
+    def _load_notes(self):
+        """Load notes from local file"""
+        notes_file = os.path.join(os.path.dirname(__file__), "session_notes.txt")
+        try:
+            if os.path.exists(notes_file):
+                with open(notes_file, 'r') as f:
+                    content = f.read()
+                    self.notes_text.insert("1.0", content)
+        except Exception as e:
+            print(f"Could not load notes: {e}")
+    
+    def _auto_save_notes(self, event=None):
+        """Auto-save notes to local file"""
+        if self.notes_text.edit_modified():
+            notes_file = os.path.join(os.path.dirname(__file__), "session_notes.txt")
+            try:
+                content = self.notes_text.get("1.0", "end-1c")
+                with open(notes_file, 'w') as f:
+                    f.write(content)
+                self.notes_text.edit_modified(False)
+            except Exception as e:
+                print(f"Could not save notes: {e}")
     
 if __name__ == "__main__":
     print("Starting 3D Scanner Control Panel v1.0...")
