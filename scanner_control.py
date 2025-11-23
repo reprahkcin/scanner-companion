@@ -21,7 +21,7 @@ Features:
 
 Author: Generated for 3D Scanner Project
 Date: September 2025
-Version: 1.0
+Version: 1.1
 """
 
 import tkinter as tk
@@ -353,15 +353,12 @@ class ScannerGUI(tk.Tk):
         self.minsize(800, 600)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         
-        # Radical fix for window jumping to background - keep window always on top
-        # This is aggressive but should solve the Raspberry Pi window manager issue
+        # Simple always-on-top - don't add aggressive focus handling
         self.wm_attributes('-topmost', True)
-        self.focus_force()
-        self.grab_set()
         
-        # Set up periodic focus maintenance
-        self._focus_maintenance_active = True
-        self.after(100, self._maintain_focus)
+        # Disable focus maintenance - it causes more problems than it solves
+        self._focus_maintenance_active = False
+        # self.after(100, self._maintain_focus)
 
         # === Serial Setup ===
         try:
@@ -457,9 +454,10 @@ class ScannerGUI(tk.Tk):
         self._build_gui()
         self._layout_gui()
         
-        # Simple focus handling - just bind to main window click
-        self.bind("<Button-1>", self._on_window_click)
-        self.bind("<FocusOut>", self._on_focus_lost)
+        # Remove all focus handling bindings - let tkinter handle it naturally
+        # self.bind("<Button-1>", self._on_window_click)
+        # Remove FocusOut binding - it was causing keyboard input issues
+        # self.bind("<FocusOut>", self._on_focus_lost)
 
         # Create output directory if it doesn't exist
         os.makedirs(DEFAULT_OUTPUT_DIR, exist_ok=True)
@@ -1411,7 +1409,7 @@ appear much larger than the camera circle. Scale the final
             self.status_var.set(f"Preview error: {e}")
             self.stop_preview()
 
-    def send_motor_command(self, command, wait_for_done=False, timeout=120):
+    def send_motor_command(self, command, wait_for_done=False, timeout=10):
         """Send command to Arduino and block until completion.
 
         The Arduino sketch prints "OK" only after finishing a motion command
@@ -1421,7 +1419,7 @@ appear much larger than the camera circle. Scale the final
         Args:
             command (str): Command string to send (e.g., "ROTATE 1 90 CW")
             wait_for_done (bool): Ignored; retained for backward compatibility
-            timeout (int): Max seconds to wait for a response
+            timeout (int): Max seconds to wait for a response (default 10)
 
         Returns:
             bool or str: True if successful (OK), False on ERR/timeout,
@@ -1440,6 +1438,7 @@ appear much larger than the camera circle. Scale the final
 
             # Send command
             full_command = command.strip() + "\n"
+            print(f"DEBUG: Sending to Arduino: {repr(full_command)}")  # Debug output
             self.ser.write(full_command.encode())
             self.ser.flush()
 
@@ -1452,6 +1451,7 @@ appear much larger than the camera circle. Scale the final
                 if not line:
                     time.sleep(0.01)
                     continue
+                print(f"DEBUG: Arduino response: {repr(line)}")  # Debug output
                 last_seen = line
 
                 # Skip boot or banner lines
@@ -1503,10 +1503,9 @@ appear much larger than the camera circle. Scale the final
     def motor1_ccw(self):
         try:
             step = float(self.motor1_step_var.get())
-            scale = max(0.0001, float(self.rotation_scale.get()))
-            amount_fw = step * scale
-            dir_cmd = "CW" if self.rotation_invert.get() else "CCW"
-            command = f"ROTATE 1 {amount_fw} {dir_cmd}"
+            # Apply direction inversion if enabled
+            direction = "CCW" if self.rotation_invert.get() else "CW"
+            command = f"ROTATE 1 {step} {direction}"
             
             if self.send_motor_command(command):
                 self.motor1_position_deg -= step
@@ -1520,10 +1519,9 @@ appear much larger than the camera circle. Scale the final
     def motor1_cw(self):
         try:
             step = float(self.motor1_step_var.get())
-            scale = max(0.0001, float(self.rotation_scale.get()))
-            amount_fw = step * scale
-            dir_cmd = "CCW" if self.rotation_invert.get() else "CW"
-            command = f"ROTATE 1 {amount_fw} {dir_cmd}"
+            # Apply direction inversion if enabled
+            direction = "CW" if self.rotation_invert.get() else "CCW"
+            command = f"ROTATE 1 {step} {direction}"
             
             if self.send_motor_command(command):
                 self.motor1_position_deg += step
@@ -1618,14 +1616,12 @@ appear much larger than the camera circle. Scale the final
             self.status_var.set("Failed to zero motor 3")
 
     def _maintain_focus(self):
-        """Periodically maintain window focus to prevent jumping to background."""
+        """Periodically maintain window on top to prevent jumping to background."""
         if self._focus_maintenance_active:
             try:
-                # Only maintain if window still exists and is visible
                 if self.winfo_exists():
-                    # Don't interfere if user is interacting with other windows
-                    # Just ensure our window stays accessible
-                    pass
+                    # Keep window on top without forcing focus (allows keyboard input)
+                    self.lift()
             except:
                 pass
             # Schedule next maintenance check
@@ -1633,12 +1629,15 @@ appear much larger than the camera circle. Scale the final
 
     def _on_window_click(self, event):
         """Handle window clicks - ensure window stays in front."""
-        # Don't do anything aggressive on click - user clicked intentionally
-        pass
+        try:
+            # Only lift window, don't force focus (allows Entry widgets to work)
+            self.lift()
+        except:
+            pass
 
     def _on_focus_lost(self, event):
         """Handle when window loses focus."""
-        # Allow normal focus loss - don't fight the window manager too much
+        # Disabled - was interfering with keyboard input in Entry widgets
         pass
 
     def bring_to_front(self):
@@ -2191,12 +2190,10 @@ appear much larger than the camera circle. Scale the final
         rotation_needed = target_angle - current_angle
         
         if abs(rotation_needed) > 0.01:
-            desired_dir = "CW" if rotation_needed > 0 else "CCW"
-            direction = ("CCW" if desired_dir == "CW" else "CW") if self.rotation_invert.get() else desired_dir
-            scale = max(0.0001, float(self.rotation_scale.get()))
-            amount_fw = abs(rotation_needed) * scale
+            direction = "CW" if rotation_needed > 0 else "CCW"
+            amount = abs(rotation_needed)
 
-            command = f"ROTATE 1 {amount_fw} {direction}"
+            command = f"ROTATE 1 {amount} {direction}"
             if self.send_motor_command(command, wait_for_done=True):
                 self.motor1_position_deg = target_angle
                 self.after(0, self.motor1_pos_var.set, f"{target_angle:.1f}°")
@@ -2840,10 +2837,9 @@ appear much larger than the camera circle. Scale the final
         """Motor 1 CCW control for calibration tab"""
         try:
             step = float(self.cal_motor1_step_var.get())
-            scale = max(0.0001, float(self.rotation_scale.get()))
-            amount_fw = step * scale
-            dir_cmd = "CW" if self.rotation_invert.get() else "CCW"
-            command = f"ROTATE 1 {amount_fw} {dir_cmd}"
+            # Apply direction inversion if enabled
+            direction = "CCW" if self.rotation_invert.get() else "CW"
+            command = f"ROTATE 1 {step} {direction}"
             
             if self.send_motor_command(command):
                 self.motor1_position_deg -= step
@@ -2858,10 +2854,9 @@ appear much larger than the camera circle. Scale the final
         """Motor 1 CW control for calibration tab"""
         try:
             step = float(self.cal_motor1_step_var.get())
-            scale = max(0.0001, float(self.rotation_scale.get()))
-            amount_fw = step * scale
-            dir_cmd = "CCW" if self.rotation_invert.get() else "CW"
-            command = f"ROTATE 1 {amount_fw} {dir_cmd}"
+            # Apply direction inversion if enabled
+            direction = "CW" if self.rotation_invert.get() else "CCW"
+            command = f"ROTATE 1 {step} {direction}"
             
             if self.send_motor_command(command):
                 self.motor1_position_deg += step
