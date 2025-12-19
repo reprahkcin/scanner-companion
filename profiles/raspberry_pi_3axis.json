@@ -1,0 +1,85 @@
+{
+  "name": "raspberry_pi_3axis",
+  "description": "Original 3-axis scanner: rotation platform, linear focus rail, vertical tilt",
+  "version": "1.0",
+  "axes": [
+    {
+      "name": "M1",
+      "label": "Rotation Platform",
+      "axis_type": "rotary",
+      "units": "deg",
+      "min_limit": 0.0,
+      "max_limit": 360.0,
+      "home_position": 0.0,
+      "steps_per_unit": 17.7778,
+      "max_velocity": 10.0,
+      "acceleration": 50.0,
+      "controller_axis": "",
+      "motor_index": 1,
+      "inverted": false,
+      "has_home_switch": false,
+      "home_direction": -1,
+      "role": "specimen_rotation"
+    },
+    {
+      "name": "M2",
+      "label": "Focus Rail",
+      "axis_type": "linear",
+      "units": "mm",
+      "min_limit": 0.0,
+      "max_limit": 150.0,
+      "home_position": 0.0,
+      "steps_per_unit": 1281.21,
+      "max_velocity": 10.0,
+      "acceleration": 50.0,
+      "controller_axis": "",
+      "motor_index": 2,
+      "inverted": false,
+      "has_home_switch": true,
+      "home_direction": -1,
+      "role": "focus"
+    },
+    {
+      "name": "M3",
+      "label": "Vertical Tilt",
+      "axis_type": "rotary",
+      "units": "deg",
+      "min_limit": -90.0,
+      "max_limit": 90.0,
+      "home_position": 0.0,
+      "steps_per_unit": 88.8889,
+      "max_velocity": 10.0,
+      "acceleration": 50.0,
+      "controller_axis": "",
+      "motor_index": 3,
+      "inverted": false,
+      "has_home_switch": false,
+      "home_direction": -1,
+      "role": "camera_tilt"
+    }
+  ],
+  "controllers": [
+    {
+      "controller_type": "arduino_serial",
+      "name": "arduino",
+      "port": "/dev/ttyACM0",
+      "baudrate": 115200,
+      "settings": {}
+    }
+  ],
+  "axis_controller_map": {
+    "M1": "arduino",
+    "M2": "arduino",
+    "M3": "arduino"
+  },
+  "power_relay": {
+    "enabled": true,
+    "pin": "A0",
+    "active_low": true
+  },
+  "scan_defaults": {
+    "perspectives": 72,
+    "focus_slices": 5,
+    "settle_delay": 1.0
+  }
+}

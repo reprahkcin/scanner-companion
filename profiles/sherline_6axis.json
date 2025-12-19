@@ -1,0 +1,158 @@
+{
+  "name": "sherline_6axis",
+  "description": "Sherline CNC mill with 4th axis rotary and quill-mounted camera tilt",
+  "version": "1.0",
+  "axes": [
+    {
+      "name": "X",
+      "label": "Mill X",
+      "axis_type": "linear",
+      "units": "mm",
+      "min_limit": 0.0,
+      "max_limit": 230.0,
+      "home_position": 0.0,
+      "steps_per_unit": 2000.0,
+      "max_velocity": 10.0,
+      "acceleration": 50.0,
+      "controller_axis": "X",
+      "motor_index": 0,
+      "inverted": false,
+      "has_home_switch": false,
+      "home_direction": -1,
+      "role": "positioning"
+    },
+    {
+      "name": "Y",
+      "label": "Mill Y",
+      "axis_type": "linear",
+      "units": "mm",
+      "min_limit": 0.0,
+      "max_limit": 175.0,
+      "home_position": 0.0,
+      "steps_per_unit": 2000.0,
+      "max_velocity": 10.0,
+      "acceleration": 50.0,
+      "controller_axis": "Y",
+      "motor_index": 0,
+      "inverted": false,
+      "has_home_switch": false,
+      "home_direction": -1,
+      "role": "positioning"
+    },
+    {
+      "name": "Z",
+      "label": "Mill Z",
+      "axis_type": "linear",
+      "units": "mm",
+      "min_limit": 0.0,
+      "max_limit": 165.0,
+      "home_position": 0.0,
+      "steps_per_unit": 2000.0,
+      "max_velocity": 10.0,
+      "acceleration": 50.0,
+      "controller_axis": "Z",
+      "motor_index": 0,
+      "inverted": false,
+      "has_home_switch": false,
+      "home_direction": -1,
+      "role": "positioning"
+    },
+    {
+      "name": "R",
+      "label": "Camera Rail",
+      "axis_type": "linear",
+      "units": "mm",
+      "min_limit": 0.0,
+      "max_limit": 100.0,
+      "home_position": 0.0,
+      "steps_per_unit": 1281.21,
+      "max_velocity": 10.0,
+      "acceleration": 50.0,
+      "controller_axis": "U",
+      "motor_index": 2,
+      "inverted": false,
+      "has_home_switch": true,
+      "home_direction": -1,
+      "role": "focus"
+    },
+    {
+      "name": "A",
+      "label": "Specimen Rotary",
+      "axis_type": "rotary",
+      "units": "deg",
+      "min_limit": 0.0,
+      "max_limit": 360.0,
+      "home_position": 0.0,
+      "steps_per_unit": 44.444,
+      "max_velocity": 10.0,
+      "acceleration": 50.0,
+      "controller_axis": "A",
+      "motor_index": 0,
+      "inverted": false,
+      "has_home_switch": false,
+      "home_direction": -1,
+      "role": "specimen_rotation"
+    },
+    {
+      "name": "B",
+      "label": "Camera Tilt",
+      "axis_type": "rotary",
+      "units": "deg",
+      "min_limit": 0.0,
+      "max_limit": 90.0,
+      "home_position": 0.0,
+      "steps_per_unit": 44.444,
+      "max_velocity": 10.0,
+      "acceleration": 50.0,
+      "controller_axis": "B",
+      "motor_index": 0,
+      "inverted": false,
+      "has_home_switch": false,
+      "home_direction": -1,
+      "role": "camera_tilt"
+    }
+  ],
+  "controllers": [
+    {
+      "controller_type": "grbl",
+      "name": "cnc",
+      "port": "/dev/ttyUSB0",
+      "baudrate": 115200,
+      "settings": {
+        "coordinate_system": "G54"
+      }
+    },
+    {
+      "controller_type": "arduino_serial",
+      "name": "arduino",
+      "port": "/dev/ttyACM0",
+      "baudrate": 115200,
+      "settings": {}
+    }
+  ],
+  "axis_controller_map": {
+    "X": "cnc",
+    "Y": "cnc",
+    "Z": "cnc",
+    "A": "cnc",
+    "B": "cnc",
+    "R": "arduino"
+  },
+  "power_relay": {
+    "enabled": true,
+    "controller": "arduino",
+    "pin": "A0",
+    "active_low": true
+  },
+  "scan_defaults": {
+    "perspectives": 72,
+    "focus_slices": 5,
+    "settle_delay": 0.5,
+    "elevation_angles": [
+      0,
+      30,
+      60,
+      90
+    ]
+  }
+}
