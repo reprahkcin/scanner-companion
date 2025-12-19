@@ -15,6 +15,8 @@ const int DIR_PIN_3      = 10;
 const int ENABLE_PIN_3   = 11;
 const int LIMIT_SWITCH_3 = 8;   // future: bottom limit for Motor 3 (reserved)
 
+const int POWER_RELAY_PIN = A0; // Relay controlling 24V motor power (LOW = ON for low-trigger relay)
+
 // ── Timing & driver enable polarity ──────────────────────────────────────────
 const unsigned int PULSE_DELAY_US   = 500;
 // TB6600 ENABLE LOGIC (ENA+ to 5V, ENA- to pin): 
@@ -22,14 +24,18 @@ const unsigned int PULSE_DELAY_US   = 500;
 // See TB6600_ENABLE_LOGIC.md for full explanation
 const bool      ENABLE_ACTIVE_HIGH  = true;
 
-// Motor 3 hold settings (prevent overheating on counterbalanced tilt axis)
-const unsigned long MOTOR3_SETTLE_TIME_MS = 1000;  // Hold time after movement before disabling
+// Relay logic: LOW-trigger relay (LOW = relay energized = power ON)
+const bool      RELAY_ACTIVE_LOW    = true;
+bool            motorPowerOn        = false;  // Track power state
 
 // ── Calibration constants ────────────────────────────────────────────────────
 // All motors: 6400 pulses/revolution (32× microstepping)
 
 const float STEPS_PER_DEGREE_M1 = 17.7778;  // 6400 pulses/rev ÷ 360° (32x microstepping)
-const float STEPS_PER_DEGREE_M3 = 17.7778;  // 6400 pulses/rev ÷ 360° (32x microstepping)
+
+// Motor 3: 5:1 planetary gearbox (5 motor revs = 1 output rev)
+// 6400 steps/rev × 5:1 ratio = 32000 steps per output revolution ÷ 360° = 88.8889 steps/degree
+const float STEPS_PER_DEGREE_M3 = 88.8889;  // 6400 pulses/rev × 5 ratio ÷ 360° (geared)
 
 // Motor 2: Lead screw with 32x microstepping = 6400 steps per screw revolution
 // CALIBRATED: 100mm command = 96.36mm actual → 1234.57 * (100/96.36) = 1281.21 steps/mm
@@ -62,6 +68,16 @@ void disableDriver(int m) {
     digitalWrite(ENABLE_PIN_2, !ENABLE_ACTIVE_HIGH);
   else if (m == 3)
     digitalWrite(ENABLE_PIN_3, !ENABLE_ACTIVE_HIGH);
+}
+
+// ── Motor power relay control ────────────────────────────────────────────────
+void setMotorPower(bool on) {
+  motorPowerOn = on;
+  if (RELAY_ACTIVE_LOW) {
+    digitalWrite(POWER_RELAY_PIN, on ? LOW : HIGH);
+  } else {
+    digitalWrite(POWER_RELAY_PIN, on ? HIGH : LOW);
+  }
 }
 
 // ── Atomized stepping with limit‐switch check ───────────────────────────────
@@ -124,8 +140,6 @@ void tiltMotor(int m, float deg, bool up) {
   bool dirHigh = up ^ DIR_REVERSE_M3;
   enableDriver(3);
   stepMotor(STEP_PIN_3, DIR_PIN_3, dirHigh, steps);
-  // Allow motor to settle into position before disabling (prevents rebound)
-  delay(MOTOR3_SETTLE_TIME_MS);
   disableDriver(3);
 }
 
@@ -177,7 +191,25 @@ void handleCommand(String line) {
     Serial.print(" EN2(12)=");
     Serial.print(digitalRead(ENABLE_PIN_2));
     Serial.print(" EN3(11)=");
-    Serial.println(digitalRead(ENABLE_PIN_3));
+    Serial.print(digitalRead(ENABLE_PIN_3));
+    Serial.print(" RELAY(A0)=");
+    Serial.print(digitalRead(POWER_RELAY_PIN));
+    Serial.print(" PWR=");
+    Serial.println(motorPowerOn ? "ON" : "OFF");
+  }
+  else if (tok[0] == "POWER" && tc >= 2) {
+    if (tok[1] == "ON") {
+      setMotorPower(true);
+      Serial.println("OK POWER ON");
+    } else if (tok[1] == "OFF") {
+      setMotorPower(false);
+      Serial.println("OK POWER OFF");
+    } else {
+      Serial.println("ERR: POWER ON or POWER OFF");
+    }
+  }
+  else if (tok[0] == "GET_POWER") {
+    Serial.println(motorPowerOn ? "ON" : "OFF");
   }
   else {
     Serial.println("ERR: unknown or malformed command");
@@ -198,12 +230,16 @@ void setup() {
   pinMode(LIMIT_SWITCH_2, INPUT_PULLUP);
   // pinMode(LIMIT_SWITCH_3, INPUT_PULLUP);  // uncomment when limit switch is installed
 
+  // Configure relay pin - start with power OFF (safe default)
+  pinMode(POWER_RELAY_PIN, OUTPUT);
+  setMotorPower(false);  // Motors OFF on boot
+
   // start with all drivers disabled
   disableDriver(1);
   disableDriver(2);
   disableDriver(3);
 
-  Serial.println("Ready for ROTATE, MOVE, TILT, ZERO, GET_POS, DEBUG_PINS");
+  Serial.println("Ready for ROTATE, MOVE, TILT, ZERO, GET_POS, POWER, GET_POWER, DEBUG_PINS");
 }
 
 void loop() {

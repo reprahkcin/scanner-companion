@@ -2,11 +2,11 @@
 
 ## Project Overview
 
-**3D photogrammetry scanner control system** for Raspberry Pi that generates XMP sidecar files for RealityScan/RealityCapture. The scanner captures images from multiple angles around a specimen using a rotating platform and linear rail for focus stacking, with mathematically precise camera pose metadata.
+**3D photogrammetry scanner control system** for Raspberry Pi that generates XMP sidecar files for RealityScan/RealityCapture. The scanner captures images from multiple angles around a specimen using a rotating platform, linear rail for focus stacking, and vertical tilt axis for spherical coverage, with mathematically precise camera pose metadata.
 
-**Architecture**: Python/Tkinter GUI (`scanner_control.py`) → Serial → Arduino firmware (`arduino/scanner_controller.ino`) → Stepper motor drivers
+**Architecture**: Python/Tkinter GUI (`scanner_control.py`) → Serial → Arduino firmware (`arduino/scanner_controller/scanner_controller.ino`) → TB6600 stepper motor drivers → 24V relay for motor power
 
-**Current Development Status**: Hardware control and image capture are working. XMP pose generation produces valid XML but incorrect camera orientations (models render upside-down in RealityScan). Active work needed on rotation matrix convention and PosePrior settings.
+**Current Development Status**: Hardware control (3 motors + power relay) and image capture are working. XMP pose generation produces valid XML but incorrect camera orientations (models render upside-down in RealityScan). Active work needed on rotation matrix convention and PosePrior settings.
 
 ## Critical XMP Format & Known Issues
 
@@ -89,14 +89,19 @@ GUI Event → send_motor_command() → Serial "/dev/ttyACM0" @ 115200 baud
 ```cpp
 ROTATE <motor> <degrees> <CW|CCW>    // Motor 1: rotation platform
 MOVE <motor> <millimeters> <FORWARD|BACKWARD>  // Motor 2: linear rail focus
+TILT <motor> <degrees> <UP|DOWN>     // Motor 3: vertical tilt axis
 ZERO <motor>                          // Reset position counter
 GET_POS <motor>                       // Query current position
+POWER <ON|OFF>                        // Control 24V motor power relay
+GET_POWER                             // Query power state
 ```
 
-**Calibration Constants** (in `arduino/scanner_controller.ino`):
-- Motor 1: `STEPS_PER_DEGREE_M1 = 75.0` (rotation)
-- Motor 2: `STEPS_PER_MM_M2 = 13.0` (linear rail)
+**Calibration Constants** (in `arduino/scanner_controller/scanner_controller.ino`):
+- Motor 1: `STEPS_PER_DEGREE_M1 = 17.7778` (rotation, 32x microstepping)
+- Motor 2: `STEPS_PER_MM_M2 = 1281.21` (linear rail, calibrated)
+- Motor 3: `STEPS_PER_DEGREE_M3 = 88.8889` (tilt, 5:1 gearbox)
 - Limit switch on Motor 2 pin 7 for home detection
+- Power relay on pin A0 (low-trigger)
 
 ### 3. Calibration System
 **Cardinal point calibration** at 0°, 90°, 180°, 270° defines focus envelope:
@@ -160,8 +165,10 @@ with self.camera_lock:
 ### Position Tracking
 ```python
 # Python side maintains mirror of Arduino position counters
-self.motor1_position_deg  # Degrees (rotation)
+self.motor1_position_deg  # Degrees (rotation platform)
 self.motor2_position_mm   # Millimeters (linear rail)
+self.motor3_position_deg  # Degrees (vertical tilt axis)
+self.motor_power_on       # 24V relay state (True/False)
 
 # Sync with Arduino after movements:
 actual_pos = self.get_motor_position(motor_num)
@@ -278,17 +285,20 @@ scaled_distance, scale_factor = auto_scale_positions(distance_mm)
 scanner-companion/
 ├── scanner_control.py          # Main app (2800+ lines)
 │   ├── ring_pose()            # Camera pose math
+│   ├── spherical_pose()       # Spherical pose math
 │   ├── write_xmp_sidecar()    # XMP generation
 │   ├── ScannerGUI class       # Tkinter application
 │   └── VERIFIED_* constants   # Locked XMP parameters
 ├── arduino/
-│   └── scanner_controller.ino # Motor control firmware (185 lines)
+│   └── scanner_controller/
+│       └── scanner_controller.ino  # Motor control firmware
 ├── calibration_examples/       # Sample calibration JSON files
 ├── temp/                       # UNTRACKED - use for test scripts
-│   └── final_pose_sets/       # Working XMP reference files
+│   └── small_fly_9/           # Working XMP reference files
 ├── docs/
 │   ├── FEATURES.md            # Detailed feature documentation
 │   ├── hardware_setup.md      # Wiring and assembly guide
+│   ├── SPHERICAL_SCANNING_STATUS.md  # 4th-axis implementation status
 │   └── QUICKSTART.md          # Installation steps
 └── legacy/                    # Development history (v1-v4)
 ```
@@ -327,7 +337,7 @@ python3 scanner_control.py
 ```
 
 **Hardware Setup Checklist**:
-1. Arduino loaded with `arduino/scanner_controller.ino`
+1. Arduino loaded with `arduino/scanner_controller/scanner_controller.ino`
 2. Stepper drivers wired per `docs/hardware_setup.md`
 3. Pi Camera connected and enabled (`sudo raspi-config`)
 4. Serial permissions: `sudo usermod -a -G dialout $USER`
@@ -379,7 +389,7 @@ python3 scanner_control.py
 
 **Serial Connection Issues**:
 - Check Arduino is connected: `ls /dev/ttyACM*`
-- Verify firmware loaded: Arduino IDE Serial Monitor should show "Ready for ROTATE, MOVE, ZERO, GET_POS"
+- Verify firmware loaded: Arduino IDE Serial Monitor should show "Ready for ROTATE, MOVE, TILT, ZERO, GET_POS, POWER, GET_POWER, DEBUG_PINS"
 - Permission error: Add user to dialout group
 
 **Camera Failures**:
@@ -389,11 +399,11 @@ python3 scanner_control.py
 
 **Motor Movement Problems**:
 - No movement: Check enable pin wiring, driver power supply
-- Wrong direction: Adjust `DIR_REVERSE_M1`/`DIR_REVERSE_M2` in Arduino code
+- Wrong direction: Adjust `DIR_REVERSE_M1`/`DIR_REVERSE_M2`/`DIR_REVERSE_M3` in Arduino code
 - Position drift: Use limit switches for homing, re-zero positions
 
 **XMP Import Failures in RealityScan**:
-- Compare against working reference XMP files in `temp/final_pose_sets/`
+- Compare against working reference XMP files in `temp/small_fly_9/`
 - Check for line breaks within attribute values
 - Verify spelling: "DistortionCoeficients" not "Coefficients"
 - Ensure XMP filename matches image filename exactly
@@ -406,5 +416,7 @@ When starting new development session, remember:
 3. Test scripts always go in `temp/` directory (untracked)
 4. Camera pose convention needs validation (Z-up, counter-clockwise rotation)
 5. Serial protocol: Commands are synchronous, wait for "OK" response
+6. Position scale should be auto-detected, not user-configurable
+7. PosePrior should allow refinement ("draft"), not lock poses ("locked")
 6. Position scale should be auto-detected, not user-configurable
 7. PosePrior should allow refinement ("draft"), not lock poses ("locked")

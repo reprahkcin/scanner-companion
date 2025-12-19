@@ -1,22 +1,22 @@
 # Spherical Scanning Implementation Status
 
-**Date**: November 10, 2025  
-**Status**: Hardware integration pending - Motor 3 (tilt axis) on order
+**Date**: December 18, 2025  
+**Status**: ✅ Hardware integration complete - Motor 3 (tilt axis) and power relay functional
 
 ---
 
 ## Overview
 
-Adding vertical tilt axis (Motor 3) to enable spherical photogrammetry scans. This allows capturing specimens from angles above and below the horizon, providing complete 360° coverage around a spherical volume instead of just a horizontal ring.
+Added vertical tilt axis (Motor 3) with 5:1 planetary gearbox to enable spherical photogrammetry scans. This allows capturing specimens from angles above and below the horizon, providing complete 360° coverage around a spherical volume instead of just a horizontal ring.
 
-**Scan Pattern**: Spiral sweep from +45° (looking down) to -45° (looking up), continuously rotating the turntable while descending through elevation angles.
+**Scan Pattern Goal**: Spiral sweep from +45° (looking down) to -45° (looking up), continuously rotating the turntable while descending through elevation angles.
 
 ---
 
 ## ✅ Completed Work
 
 ### 1. Arduino Firmware - Motor 3 Support
-**File**: `arduino/scanner_controller.ino`
+**File**: `arduino/scanner_controller/scanner_controller.ino`
 
 **Changes**:
 - Added pin assignments for TB6600 driver:
@@ -24,7 +24,7 @@ Adding vertical tilt axis (Motor 3) to enable spherical photogrammetry scans. Th
   - `DIR_PIN_3 = 10`
   - `ENABLE_PIN_3 = 11`
   - `LIMIT_SWITCH_3 = 8` (reserved for future use)
-- Added `STEPS_PER_DEGREE_M3 = 75.0` calibration constant
+- Added `STEPS_PER_DEGREE_M3 = 88.8889` calibration constant (5:1 gearbox)
 - Added `positionM3_deg` position tracker
 - Implemented `tiltMotor()` function
 - Added `TILT` command to serial protocol:
@@ -32,17 +32,17 @@ Adding vertical tilt axis (Motor 3) to enable spherical photogrammetry scans. Th
   - Example: `TILT 3 5.0 UP` → tilt specimen 5° upward
 - Extended `ZERO` and `GET_POS` commands to support Motor 3
 
-**Testing Required** (once motor arrives):
-1. Verify wiring: Connect TB6600 driver to Arduino pins 9, 10, 11
-2. Upload firmware and check Serial Monitor shows: "Ready for ROTATE, MOVE, TILT, ZERO, GET_POS"
-3. Test `TILT 3 10 UP` and `TILT 3 10 DOWN` commands
-4. Verify position tracking with `GET_POS 3`
-5. Adjust `STEPS_PER_DEGREE_M3` constant if needed (currently 75 steps/degree)
-6. Test `DIR_REVERSE_M3` flag if UP/DOWN directions are inverted
+### 2. Arduino Firmware - Power Relay Control
+**File**: `arduino/scanner_controller/scanner_controller.ino`
 
----
+**Changes**:
+- Added `POWER_RELAY_PIN = A0` for relay control
+- Implemented `setMotorPower()` function (supports low-trigger relays)
+- Added `POWER ON/OFF` and `GET_POWER` serial commands
+- Safe default: motors powered OFF on boot
+- Extended `DEBUG_PINS` output to show relay state
 
-### 2. Python GUI - Motor 3 Controls
+### 3. Python GUI - Motor 3 Controls
 **File**: `scanner_control.py`
 
 **Changes**:
@@ -56,20 +56,19 @@ Adding vertical tilt axis (Motor 3) to enable spherical photogrammetry scans. Th
   - `motor3_down()` - Tilt specimen downward (negative angle)
   - `motor3_home()` - Zero the tilt axis position
 
-**Testing Steps** (once motor connected):
-1. Launch `python scanner_control.py`
-2. Go to Manual Control tab
-3. Verify Motor 3 (Tilt) frame appears below Motor 1 and Motor 2
-4. Test buttons and verify position display updates
-5. Confirm serial commands are sent correctly
-6. Check that position persists across movements
+### 4. Python GUI - Motor Power Control
+**File**: `scanner_control.py`
 
----
+**Changes**:
+- Added `self.motor_power_on` state tracker
+- Added Motor Power status display and toggle button in Manual Control tab
+- Implemented `toggle_motor_power()` function
+- Updated serial command parsing to accept `OK <message>` responses
 
-### 3. Spherical Pose Mathematics
-**File**: `scanner_control.py` (lines 133-198)
+### 5. Spherical Pose Mathematics
+**File**: `scanner_control.py`
 
-**New Function**: `spherical_pose(radius_mm, azimuth_deg, elevation_deg)`
+**Function**: `spherical_pose(radius_mm, azimuth_deg, elevation_deg)`
 
 **Features**:
 - Calculates camera position on sphere surface
@@ -79,32 +78,19 @@ Adding vertical tilt axis (Motor 3) to enable spherical photogrammetry scans. Th
 - Returns `RigPose(pos_m, R_rowmajor)` compatible with XMP generation
 
 **Validation** (completed):
-- Test script: `temp/test_spherical_poses.py`
 - All rotation matrices are orthonormal with det=1
 - Camera positions lie exactly on specified sphere radius
 - Forward vectors correctly point toward origin
 - Tested extreme angles: horizontal, ±45° elevation, oblique angles
 
-**Spiral Pattern Example** (360 shots, 5 threads):
-```
-Elevation range: -45.0° to 45.0°
-Azimuth range: 0.0° to 350.0°
-Sample poses:
-  Shot   0: Az=   0.0° El= 45.0° Pos=( 0.0707,  0.0000,  0.0707)m  [Top, +X]
-  Shot  90: Az= 180.0° El= 22.4° Pos=(-0.0924,  0.0000,  0.0382)m  [Mid-high, -X]
-  Shot 180: Az=   0.0° El= -0.1° Pos=( 0.1000,  0.0000, -0.0002)m  [Equator, +X]
-  Shot 270: Az= 180.0° El=-22.7° Pos=(-0.0923,  0.0000, -0.0386)m  [Mid-low, -X]
-  Shot 359: Az= 350.0° El=-45.0° Pos=( 0.0696, -0.0123, -0.0707)m  [Bottom]
-```
-
 ---
 
-## 🔧 Pending Work
+## 🔧 Remaining Work
 
 ### 4. Spiral Sweep Capture Sequence
-**Status**: Not started - awaiting motor hardware
+**Status**: Not started - hardware ready, software implementation needed
 
-**Location**: Modify `_run_capture_sequence()` in `scanner_control.py` (around line 2404)
+**Location**: Modify `_run_capture_sequence()` in `scanner_control.py`
 
 **Implementation Plan**:
 
@@ -222,9 +208,15 @@ Sample poses:
 ---
 
 ### 6. Testing & Validation
-**Status**: Not started - requires hardware
+**Status**: Hardware verified, capture sequence testing pending
 
-**Test Sequence**:
+**Completed Tests**:
+- ✅ Motor 3 wiring and basic movement
+- ✅ Direction mapping (UP = positive angle)
+- ✅ Steps/degree calibration (88.8889 with 5:1 gearbox)
+- ✅ Power relay control
+
+**Remaining Tests**:
 
 1. **Motor 3 Hardware Test**:
    - Verify wiring and basic movement
@@ -266,32 +258,35 @@ Sample poses:
 
 ## 📋 Hardware Setup Checklist
 
-When Motor 3 arrives:
+Motor 3 and power relay are now installed:
 
-- [ ] **Mechanical Installation**:
-  - [ ] Mount tilt mechanism securely
-  - [ ] Ensure smooth rotation without binding
-  - [ ] Check specimen remains centered during tilt
-  - [ ] Verify camera clears specimen at all angles
+- [x] **Mechanical Installation**:
+  - [x] Mount tilt mechanism securely
+  - [x] Ensure smooth rotation without binding
+  - [x] Check specimen remains centered during tilt
+  - [x] Verify camera clears specimen at all angles
 
-- [ ] **Electrical Connection**:
-  - [ ] Connect TB6600 driver to Arduino pins 9, 10, 11
-  - [ ] Verify driver power supply (12-24V)
-  - [ ] Set microstepping switches on driver (match Motor 1/2 if possible)
-  - [ ] Connect enable pin (active HIGH per firmware)
+- [x] **Electrical Connection**:
+  - [x] Connect TB6600 driver to Arduino pins 9, 10, 11
+  - [x] Verify driver power supply (24V)
+  - [x] Set microstepping switches on driver (32x microstepping)
+  - [x] Connect enable pin (active HIGH per firmware)
+  - [x] Connect 24V relay to Arduino pin A0
 
-- [ ] **Initial Testing**:
-  - [ ] Upload latest `scanner_controller.ino` firmware
-  - [ ] Test TILT command via Serial Monitor
-  - [ ] Verify direction (adjust `DIR_REVERSE_M3` if needed)
-  - [ ] Calibrate `STEPS_PER_DEGREE_M3` constant
-  - [ ] Test position tracking accuracy
+- [x] **Initial Testing**:
+  - [x] Upload latest `scanner_controller.ino` firmware
+  - [x] Test TILT command via Serial Monitor
+  - [x] Verify direction (DIR_REVERSE_M3 = false works correctly)
+  - [x] Calibrate STEPS_PER_DEGREE_M3 = 88.8889 (5:1 gearbox)
+  - [x] Test position tracking accuracy
+  - [x] Test POWER ON/OFF commands
 
-- [ ] **Software Configuration**:
-  - [ ] Launch Python GUI
-  - [ ] Test Motor 3 controls in Manual Control tab
-  - [ ] Verify position display updates correctly
-  - [ ] Test homing and position reset
+- [x] **Software Configuration**:
+  - [x] Launch Python GUI
+  - [x] Test Motor 3 controls in Manual Control tab
+  - [x] Verify position display updates correctly
+  - [x] Test homing and position reset
+  - [x] Test motor power toggle button
 
 - [ ] **Limit Switch** (optional, future enhancement):
   - [ ] Install limit switch at bottom position (-45° or lower)

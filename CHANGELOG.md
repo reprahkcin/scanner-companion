@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2025-12-18
+
+### Added
+- **Motor 3 (Tilt Axis)**: Full support for vertical tilt motor with 5:1 planetary gearbox
+  - New UI controls in Manual Control tab (Up/Down/Home buttons, position display)
+  - Arduino firmware support for `TILT` command
+  - Calibration constant: 88.8889 steps/degree (geared)
+- **Motor Power Relay Control**: GUI toggle for 24V motor power
+  - Arduino pin A0 controls low-trigger relay
+  - New `POWER ON/OFF` and `GET_POWER` serial commands
+  - Safe default: motors powered OFF on boot
+- **Spherical Pose Mathematics**: `spherical_pose()` function for future spherical scanning
+  - Calculates camera positions on sphere surface with proper look-at-origin rotation
+  - Handles gimbal lock at extreme elevations
+
+### Changed
+- Motor 1 calibration updated: 17.7778 steps/degree (32x microstepping, no gearbox)
+- Motor 2 calibration refined: 1281.21 steps/mm (calibrated from actual measurement)
+- Serial command parsing now accepts `OK <message>` responses for power commands
+- Removed motor settle delay from Motor 3 (rely on mechanical counterbalance)
+
+### Fixed
+- Motor driver enable logic clarified (TB6600: HIGH = enabled when ENA+ to 5V)
+
 ## [1.0.0] - 2025-09-14
 
 ### Added

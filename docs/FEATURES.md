@@ -1,8 +1,22 @@
-# 3D Scanner v4.0 - New Features Summary
+# 3D Scanner v1.1 - Features Summary
 
-## What's New in v4.0
+## What's New in v1.1
 
 ### Major New Features
+1. **Motor 3 (Tilt Axis)** - Vertical tilt control with 5:1 planetary gearbox for spherical scanning
+2. **Motor Power Relay** - GUI-controlled 24V power relay for safe motor management
+3. **Spherical Pose Math** - `spherical_pose()` function for future spherical capture sequences
+4. **3-Axis Manual Control** - Full GUI controls for all three motor axes
+
+### Technical Improvements
+- Calibrated step constants for all motors (32x microstepping)
+- Relay control with safe boot defaults (motors OFF)
+- Extended serial protocol with TILT, POWER, GET_POWER commands
+- Updated TB6600 driver enable logic documentation
+
+## What's in v1.0
+
+### Core Features
 1. **Complete Calibration Wizard** - Step-by-step calibration at cardinal points
 2. **Automated Capture Sequence** - Full 360° multi-stack capture workflow
 3. **Focus Interpolation** - Intelligent focus positioning based on calibration
@@ -81,10 +95,11 @@
 - Future expansion points for additional camera controls
 
 ## Future Enhancements
+- Spherical spiral capture sequences (Motor 3 integration with capture workflow)
 - Auto-focus algorithms
 - Exposure bracketing
 - Lighting control integration
 - Real-time photogrammetry preview
 - Cloud upload and processing
 
-This v4.0 represents a major step toward a production-ready 3D scanning system with professional workflow capabilities.
+This v1.1 release adds the hardware foundation for spherical scanning, with full capture sequence integration coming in a future release.

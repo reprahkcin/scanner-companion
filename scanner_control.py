@@ -379,6 +379,9 @@ class ScannerGUI(tk.Tk):
         self.motor1_position_deg = 0.0  # Rotation platform
         self.motor2_position_mm = 0.0   # Linear rail
         self.motor3_position_deg = 0.0  # Vertical tilt axis
+        
+        # === Motor power relay state ===
+        self.motor_power_on = False  # Tracks 24V relay state
 
         # === Calibration data ===
         self.calibration_data = {}  # {angle: {"near": mm_pos, "far": mm_pos}}
@@ -750,6 +753,14 @@ TIPS:
         self.camera_status_var = tk.StringVar(value="Not Started")
         ttk.Label(status_info, textvariable=self.camera_status_var, 
                  font=("TkDefaultFont", 9)).grid(row=1, column=1, sticky="w", padx=(5,0))
+        
+        # Motor Power Control
+        ttk.Label(status_info, text="Motor Power:").grid(row=2, column=0, sticky="w")
+        self.motor_power_status_var = tk.StringVar(value="OFF")
+        ttk.Label(status_info, textvariable=self.motor_power_status_var,
+                 font=("TkDefaultFont", 9, "bold")).grid(row=2, column=1, sticky="w", padx=(5,0))
+        self.btn_motor_power = ttk.Button(status_info, text="Turn ON", command=self.toggle_motor_power, width=10)
+        self.btn_motor_power.grid(row=2, column=2, sticky="w", padx=(10,0))
         
         # Update status display
         self._update_manual_status()
@@ -1600,7 +1611,7 @@ How to calibrate (advanced):
                     # Return raw numeric string; caller parses to float
                     return line
 
-                if line == "OK":
+                if line == "OK" or line.startswith("OK "):
                     return True
                 if line.startswith("ERR"):
                     self.status_var.set(f"Arduino error: {line}")
@@ -1637,6 +1648,27 @@ How to calibrate (advanced):
         """Zero the motor position on Arduino"""
         command = f"ZERO {motor}"
         return self.send_motor_command(command)
+
+    def toggle_motor_power(self):
+        """Toggle the 24V motor power relay on/off"""
+        if self.motor_power_on:
+            # Turn OFF
+            if self.send_motor_command("POWER OFF"):
+                self.motor_power_on = False
+                self.motor_power_status_var.set("OFF")
+                self.btn_motor_power.config(text="Turn ON")
+                self.status_var.set("Motor power OFF")
+            else:
+                self.status_var.set("Failed to turn off motor power")
+        else:
+            # Turn ON
+            if self.send_motor_command("POWER ON"):
+                self.motor_power_on = True
+                self.motor_power_status_var.set("ON")
+                self.btn_motor_power.config(text="Turn OFF")
+                self.status_var.set("Motor power ON")
+            else:
+                self.status_var.set("Failed to turn on motor power")
 
     def motor1_ccw(self):
         try:

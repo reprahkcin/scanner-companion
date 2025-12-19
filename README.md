@@ -1,14 +1,15 @@
 # 3D Scanner Control Panel
 
-A comprehensive control application for a dual-motor 3D photogrammetry scanner using Raspberry Pi and Arduino.
+A comprehensive control application for a 3-axis photogrammetry scanner using Raspberry Pi and Arduino. Features rotation, linear focus rail, and vertical tilt axes with relay-controlled motor power.
 
-![Scanner Control Panel](https://img.shields.io/badge/version-1.0-blue) ![Python](https://img.shields.io/badge/python-3.8%2B-green) ![License](https://img.shields.io/badge/license-MIT-yellow)
+![Scanner Control Panel](https://img.shields.io/badge/version-1.1-blue) ![Python](https://img.shields.io/badge/python-3.8%2B-green) ![License](https://img.shields.io/badge/license-MIT-yellow)
 
 ## 🚀 Quick Start
 
 1. **Hardware Setup**
-   - Connect Arduino with `arduino/scanner_controller.ino` loaded
-   - Attach Pi Camera and stepper motors
+   - Connect Arduino with `arduino/scanner_controller/scanner_controller.ino` loaded
+   - Attach Pi Camera and 3 stepper motors (rotation, focus rail, tilt)
+   - Connect 24V relay for motor power control
    - Ensure proper wiring and power supply
 
 2. **Software Installation**
@@ -36,8 +37,9 @@ A comprehensive control application for a dual-motor 3D photogrammetry scanner u
 
 ### 📷 Manual Control
 - **Live Camera Preview**: Real-time camera feed with adjustable settings
-- **Precision Motor Control**: Control rotation and linear rail motors
-- **Position Tracking**: Real-time position display for both motors
+- **3-Axis Motor Control**: Control rotation (M1), linear focus rail (M2), and vertical tilt (M3)
+- **Position Tracking**: Real-time position display for all three motors
+- **Motor Power Control**: Relay-controlled 24V power with GUI toggle
 
 ### 🎯 Automated Calibration
 - **Cardinal Point Calibration**: Guided setup at 0°, 90°, 180°, and 270°
@@ -83,13 +85,15 @@ scanner-companion/
 
 ### Electronics
 - **Raspberry Pi 4+** (recommended)
-- **Arduino Uno/Nano** with stepper motor drivers
-- **2x Stepper Motors** (rotation + linear rail)
+- **Arduino Uno/Nano** with stepper motor drivers (TB6600 recommended)
+- **3x Stepper Motors**: rotation platform, linear focus rail, vertical tilt axis
 - **Pi Camera Module** (v2 or HQ Camera)
+- **24V Relay Module**: for motor power control (low-trigger)
 
 ### Mechanical
-- **Rotating Platform** for specimen mounting
-- **Linear Rail System** for focus adjustment
+- **Rotating Platform** for specimen mounting (Motor 1)
+- **Linear Rail System** for focus adjustment (Motor 2)
+- **Vertical Tilt Mechanism** for elevation control (Motor 3 with 5:1 gearbox)
 - **Stable Camera Mount** and specimen positioning
 
 ## 📊 Workflow
