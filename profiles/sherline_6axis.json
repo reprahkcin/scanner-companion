@@ -1,7 +1,8 @@
 {
   "name": "sherline_6axis",
-  "description": "Sherline CNC mill with 4th axis rotary and quill-mounted camera tilt",
-  "version": "1.0",
+  "description": "MKII Scanner: Sherline CNC mill with 4th axis rotary table and camera orbit mount",
+  "version": "2.0",
+  
   "axes": [
     {
       "name": "X",
@@ -10,7 +11,7 @@
       "units": "mm",
       "min_limit": 0.0,
       "max_limit": 230.0,
-      "home_position": 0.0,
+      "home_position": 115.0,
       "steps_per_unit": 2000.0,
       "max_velocity": 10.0,
       "acceleration": 50.0,
@@ -19,7 +20,7 @@
       "inverted": false,
       "has_home_switch": false,
       "home_direction": -1,
-      "role": "positioning"
+      "role": "bed_positioning"
     },
     {
       "name": "Y",
@@ -28,7 +29,7 @@
       "units": "mm",
       "min_limit": 0.0,
       "max_limit": 175.0,
-      "home_position": 0.0,
+      "home_position": 87.5,
       "steps_per_unit": 2000.0,
       "max_velocity": 10.0,
       "acceleration": 50.0,
@@ -37,16 +38,16 @@
       "inverted": false,
       "has_home_switch": false,
       "home_direction": -1,
-      "role": "positioning"
+      "role": "bed_positioning"
     },
     {
       "name": "Z",
-      "label": "Mill Z",
+      "label": "Mill Z (Quill)",
       "axis_type": "linear",
       "units": "mm",
       "min_limit": 0.0,
       "max_limit": 165.0,
-      "home_position": 0.0,
+      "home_position": 100.0,
       "steps_per_unit": 2000.0,
       "max_velocity": 10.0,
       "acceleration": 50.0,
@@ -73,7 +74,7 @@
       "inverted": false,
       "has_home_switch": true,
       "home_direction": -1,
-      "role": "focus"
+      "role": "focus_rail"
     },
     {
       "name": "A",
@@ -91,15 +92,15 @@
       "inverted": false,
       "has_home_switch": false,
       "home_direction": -1,
-      "role": "specimen_rotation"
+      "role": "turntable"
     },
     {
       "name": "B",
-      "label": "Camera Tilt",
+      "label": "Camera Orbit",
       "axis_type": "rotary",
       "units": "deg",
       "min_limit": 0.0,
-      "max_limit": 90.0,
+      "max_limit": 180.0,
       "home_position": 0.0,
       "steps_per_unit": 44.444,
       "max_velocity": 10.0,
@@ -109,17 +110,20 @@
       "inverted": false,
       "has_home_switch": false,
       "home_direction": -1,
-      "role": "camera_tilt"
+      "role": "camera_orbit"
     }
   ],
+  
   "controllers": [
     {
-      "controller_type": "grbl",
+      "controller_type": "linuxcnc",
       "name": "cnc",
-      "port": "/dev/ttyUSB0",
-      "baudrate": 115200,
+      "port": "10.0.0.78:5000",
+      "baudrate": 0,
       "settings": {
-        "coordinate_system": "G54"
+        "coordinate_system": "G54",
+        "protocol": "tcp",
+        "connection_timeout": 5.0
       }
     },
     {
@@ -127,9 +131,12 @@
       "name": "arduino",
       "port": "/dev/ttyACM0",
       "baudrate": 115200,
-      "settings": {}
+      "settings": {
+        "command_timeout": 30.0
+      }
     }
   ],
+  
   "axis_controller_map": {
     "X": "cnc",
     "Y": "cnc",
@@ -138,21 +145,117 @@
     "B": "cnc",
     "R": "arduino"
   },
+  
+  "scene_geometry": {
+    "coordinate_system": "Z-up, right-handed",
+    "description": "Camera looks down from +Z, mounted on orbital rotary. Specimen in 4th axis rotary table on mill bed. Bed X/Y compensates for camera orbit to keep specimen centered.",
+    
+    "specimen": {
+      "position": [0, 0, 0],
+      "mounted_on": "A",
+      "notes": "Specimen clamped in 4th axis rotary table chuck. Position maintained at origin via coordinated X/Y bed movement when camera orbits."
+    },
+    
+    "axes_geometry": {
+      "X": {
+        "role": "bed_positioning",
+        "motion_type": "linear",
+        "axis_vector": [1, 0, 0],
+        "home_position": [115, 0, 0],
+        "travel_range": [0, 230],
+        "positive_direction": "+X (right when facing mill)",
+        "affects": "specimen",
+        "notes": "Mill table X movement. Used to keep specimen centered under camera during orbit."
+      },
+      "Y": {
+        "role": "bed_positioning",
+        "motion_type": "linear",
+        "axis_vector": [0, 1, 0],
+        "home_position": [0, 87.5, 0],
+        "travel_range": [0, 175],
+        "positive_direction": "+Y (toward operator)",
+        "affects": "specimen",
+        "notes": "Mill table Y movement. Used to keep specimen centered under camera during orbit."
+      },
+      "Z": {
+        "role": "positioning",
+        "motion_type": "linear",
+        "axis_vector": [0, 0, 1],
+        "home_position": [0, 0, 100],
+        "travel_range": [0, 165],
+        "positive_direction": "+Z (up)",
+        "affects": "camera_assembly",
+        "notes": "Mill quill Z movement. Coarse camera height adjustment."
+      },
+      "R": {
+        "role": "focus_rail",
+        "motion_type": "linear",
+        "axis_vector": [0, 0, -1],
+        "home_position": [0, 0, 50],
+        "travel_range": [50, 150],
+        "positive_direction": "Down toward specimen (-Z)",
+        "affects": "camera",
+        "notes": "Camera slides on rail mounted to quill. Home (0mm) is farthest from specimen."
+      },
+      "A": {
+        "role": "turntable",
+        "motion_type": "rotation",
+        "axis_vector": [1, 0, 0],
+        "pivot_point": [0, 0, 0],
+        "positive_direction": "CCW when viewed from +X",
+        "affects": "specimen",
+        "notes": "4th axis rotary table. Specimen rotates around X-axis (horizontal)."
+      },
+      "B": {
+        "role": "camera_orbit",
+        "motion_type": "rotation",
+        "axis_vector": [0, 0, 1],
+        "pivot_point": [0, 0, 50],
+        "positive_direction": "CCW when viewed from +Z (above)",
+        "affects": "camera",
+        "notes": "Camera orbit mount. Swings camera around specimen in XY plane. Requires X/Y compensation to keep specimen centered."
+      }
+    },
+    
+    "camera": {
+      "mounted_on": "R",
+      "orbits_on": "B",
+      "looks_at": "specimen",
+      "home_position": [0, 0, 50],
+      "home_orientation": [0, 0, -1],
+      "notes": "Camera faces -Z direction (down toward specimen). Position changes with R (focus rail) and B (orbit)."
+    },
+    
+    "coordinated_motion": {
+      "enabled": true,
+      "description": "When B (camera orbit) moves, X and Y must compensate to keep specimen at camera center.",
+      "compensation_axes": ["X", "Y"],
+      "notes": "Compensation calculated as: X_offset = orbit_radius * sin(B_angle), Y_offset = orbit_radius * cos(B_angle)"
+    }
+  },
+  
   "power_relay": {
     "enabled": true,
     "controller": "arduino",
     "pin": "A0",
     "active_low": true
   },
+  
   "scan_defaults": {
     "perspectives": 72,
     "focus_slices": 5,
     "settle_delay": 0.5,
-    "elevation_angles": [
-      0,
-      30,
-      60,
-      90
-    ]
+    "scan_modes": ["ring", "spherical", "hemispherical"],
+    "default_scan_mode": "hemispherical",
+    "spherical_settings": {
+      "elevation_min": 0,
+      "elevation_max": 90,
+      "elevation_steps": 7
+    }
+  },
+  
+  "pose_calculation": {
+    "method": "camera_orbiting",
+    "notes": "Camera orbits via B axis with X/Y compensation. Pose calculated as: 1) Camera at focus distance on -Z axis looking down, 2) Apply B orbit angle, 3) Apply A turntable angle to specimen, 4) Compute equivalent camera pose as if specimen were fixed."
   }
 }
