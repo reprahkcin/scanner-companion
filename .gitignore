@@ -52,6 +52,7 @@ output/
 captures/
 calibrations/
 temp/
+scanner_config.json
 
 # Camera test images
 test_*.jpg

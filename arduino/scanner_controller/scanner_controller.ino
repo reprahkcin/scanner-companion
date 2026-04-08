@@ -18,7 +18,11 @@ const int LIMIT_SWITCH_3 = 8;   // future: bottom limit for Motor 3 (reserved)
 const int POWER_RELAY_PIN = A0; // Relay controlling 24V motor power (LOW = ON for low-trigger relay)
 
 // ── Timing & driver enable polarity ──────────────────────────────────────────
-const unsigned int PULSE_DELAY_US   = 500;
+// Simple constant-speed pulse delays (microseconds per half-pulse)
+const unsigned int PULSE_DELAY_M1_US = 800;   // Turntable - moderate speed
+const unsigned int PULSE_DELAY_M2_US = 500;   // Camera rail - fast
+const unsigned int PULSE_DELAY_M3_US = 1500;  // Tilt - slow and gentle (geared motor)
+
 // TB6600 ENABLE LOGIC (ENA+ to 5V, ENA- to pin): 
 // HIGH = ENABLED (motor holds), LOW = DISABLED (quiet)
 // See TB6600_ENABLE_LOGIC.md for full explanation
@@ -80,7 +84,35 @@ void setMotorPower(bool on) {
   }
 }
 
-// ── Atomized stepping with limit‐switch check ───────────────────────────────
+// ── Atomized stepping functions ─────────────────────────────────────────────
+
+// Simple constant-speed stepping with per-motor timing
+void stepMotorSimple(int stepPin, int dirPin, bool dirHigh, long steps,
+                     unsigned int pulseDelay, float stepsPerUnit, 
+                     float* position, bool checkLimit) {
+  if (steps <= 0) return;
+  
+  digitalWrite(dirPin, dirHigh ? HIGH : LOW);
+  
+  for (long i = 0; i < steps; ++i) {
+    // Check limit switch if enabled
+    if (checkLimit && !dirHigh && digitalRead(LIMIT_SWITCH_2) == LOW) {
+      break;
+    }
+    
+    // Pulse
+    digitalWrite(stepPin, HIGH);
+    delayMicroseconds(pulseDelay);
+    digitalWrite(stepPin, LOW);
+    delayMicroseconds(pulseDelay);
+    
+    // Update position
+    *position += dirHigh ? (1.0f / stepsPerUnit) : -(1.0f / stepsPerUnit);
+  }
+}
+}
+
+// Legacy stepMotor for Motor 2 (camera rail) - fast, constant speed
 void stepMotor(int stepPin, int dirPin, bool dirHigh, long steps) {
   digitalWrite(dirPin, dirHigh ? HIGH : LOW);
   for (long i = 0; i < steps; ++i) {
@@ -91,39 +123,30 @@ void stepMotor(int stepPin, int dirPin, bool dirHigh, long steps) {
     }
     // pulse
     digitalWrite(stepPin, HIGH);
-    delayMicroseconds(PULSE_DELAY_US);
+    delayMicroseconds(PULSE_DELAY_M2_US);
     digitalWrite(stepPin, LOW);
-    delayMicroseconds(PULSE_DELAY_US);
-    // update positions
-    if (stepPin==STEP_PIN_1) {
-      positionM1_deg += dirHigh
-        ? (1.0f / STEPS_PER_DEGREE_M1)
-        : -(1.0f / STEPS_PER_DEGREE_M1);
-    }
-    else if (stepPin==STEP_PIN_2) {
-      positionM2_mm  += dirHigh
+    delayMicroseconds(PULSE_DELAY_M2_US);
+    // update position (only for Motor 2 now)
+    if (stepPin==STEP_PIN_2) {
+      positionM2_mm += dirHigh
         ? (1.0f / STEPS_PER_MM_M2)
         : -(1.0f / STEPS_PER_MM_M2);
-    }
-    else if (stepPin==STEP_PIN_3) {
-      positionM3_deg += dirHigh
-        ? (1.0f / STEPS_PER_DEGREE_M3)
-        : -(1.0f / STEPS_PER_DEGREE_M3);
     }
   }
 }
 
-// ── High‐level rotate (Motor 1) ───────────────────────────────────────────────
+// ── High‐level rotate (Motor 1 - Turntable) ───────────────────────────────────
 void rotateMotor(int m, float deg, bool cw) {
   if (m != 1) return;
   long steps = lround(deg * STEPS_PER_DEGREE_M1);
   bool dirHigh = cw ^ DIR_REVERSE_M1;
   enableDriver(1);
-  stepMotor(STEP_PIN_1, DIR_PIN_1, dirHigh, steps);
+  stepMotorSimple(STEP_PIN_1, DIR_PIN_1, dirHigh, steps,
+                  PULSE_DELAY_M1_US, STEPS_PER_DEGREE_M1, &positionM1_deg, false);
   disableDriver(1);
 }
 
-// ── High‐level move (Motor 2) ────────────────────────────────────────────────
+// ── High‐level move (Motor 2 - Camera Rail) ──────────────────────────────────
 void moveMotor(int m, float mm, bool fwd) {
   if (m != 2) return;
   long steps = lround(mm * STEPS_PER_MM_M2);
@@ -139,7 +162,8 @@ void tiltMotor(int m, float deg, bool up) {
   long steps = lround(deg * STEPS_PER_DEGREE_M3);
   bool dirHigh = up ^ DIR_REVERSE_M3;
   enableDriver(3);
-  stepMotor(STEP_PIN_3, DIR_PIN_3, dirHigh, steps);
+  stepMotorSimple(STEP_PIN_3, DIR_PIN_3, dirHigh, steps,
+                  PULSE_DELAY_M3_US, STEPS_PER_DEGREE_M3, &positionM3_deg, false);
   disableDriver(3);
 }
 

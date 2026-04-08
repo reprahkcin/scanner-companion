@@ -55,6 +55,115 @@ from dataclasses import dataclass
 from xml.sax.saxutils import escape
 
 # ──────────────────────────────────────────────────────────────────────────────
+# CONFIGURATION LOADING
+# ──────────────────────────────────────────────────────────────────────────────
+
+def load_scanner_config():
+    """Load scanner configuration from local config file.
+    
+    Searches for configuration in order:
+        1. ./scanner_config.json (current directory)
+        2. ~/.scanner_config.json (user home)
+        3. Default values
+        
+    Returns:
+        dict: Configuration dictionary with all settings
+    """
+    config_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "scanner_config.json"),
+        os.path.expanduser("~/.scanner_config.json"),
+    ]
+    
+    # Default configuration
+    config = {
+        "profile": "raspberry_pi_3axis",
+        "serial": {
+            "port": "/dev/ttyACM0",
+            "baudrate": 115200,
+            "timeout": 0.1
+        },
+        "camera": {
+            "preview_resolution": "640x480",
+            "capture_resolution": "4056x3040",
+            "preview_color_swap": True
+        },
+        "capture": {
+            "output_dir": "~/Desktop/scanner_captures",
+            "default_perspectives": 72,
+            "default_focus_slices": 5,
+            "settle_delay": 1.0,
+            "image_format": "JPG"
+        },
+        "xmp": {
+            "lens_to_object_mm": 250.0,
+            "rail_to_horizon_deg": 0.0,
+            "position_scale": 1.0,
+            "focal_length_35mm": 50.0,
+            "distortion_model": "brown3"
+        },
+        "ui": {
+            "always_on_top": True,
+            "jog_step_delay": 0.05
+        }
+    }
+    
+    # Try to load from config file
+    for config_path in config_paths:
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r') as f:
+                    loaded = json.load(f)
+                # Deep merge loaded config over defaults
+                def deep_merge(base, override):
+                    for key, value in override.items():
+                        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                            deep_merge(base[key], value)
+                        else:
+                            base[key] = value
+                deep_merge(config, loaded)
+                config["_loaded_from"] = config_path
+                print(f"Loaded config from: {config_path}")
+                break
+            except Exception as e:
+                print(f"Warning: Failed to load config from {config_path}: {e}")
+    
+    return config
+
+
+def load_hardware_profile(profile_name):
+    """Load hardware profile from profiles directory.
+    
+    Args:
+        profile_name: Name of the profile (without .json extension)
+        
+    Returns:
+        dict: Hardware profile configuration, or None if not found
+    """
+    profile_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "profiles", f"{profile_name}.json"),
+        os.path.expanduser(f"~/.scanner_profiles/{profile_name}.json"),
+    ]
+    
+    for profile_path in profile_paths:
+        if os.path.exists(profile_path):
+            try:
+                with open(profile_path, 'r') as f:
+                    profile = json.load(f)
+                profile["_loaded_from"] = profile_path
+                print(f"Loaded hardware profile: {profile_name} from {profile_path}")
+                return profile
+            except Exception as e:
+                print(f"Warning: Failed to load profile {profile_name}: {e}")
+    
+    print(f"Warning: Hardware profile '{profile_name}' not found")
+    return None
+
+
+# Load configuration at module level
+SCANNER_CONFIG = load_scanner_config()
+HARDWARE_PROFILE = load_hardware_profile(SCANNER_CONFIG.get("profile", "raspberry_pi_3axis"))
+
+# ──────────────────────────────────────────────────────────────────────────────
 # XMP POSE CALCULATION
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -284,14 +393,20 @@ def write_xmp_sidecar(img_path: str, pose: RigPose,
         f.write(xmp_content)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# CONFIGURATION SECTION
+# CONFIGURATION SECTION (values loaded from scanner_config.json)
 # ──────────────────────────────────────────────────────────────────────────────
 
-SERIAL_PORT       = "/dev/ttyACM0"  # or "/dev/serial/by-id/..." 
-SERIAL_BAUDRATE   = 115200            # Match motor_control_refactor.ino baudrate
-CAMERA_RESOLUTION = (320, 240)       # preview size (smaller for safety)
-JOG_STEP_DELAY    = 0.05             # seconds between steps during jog
-PREVIEW_COLOR_SWAP = True            # swap BGR->RGB for preview if colors look wrong
+# Serial configuration from config file
+SERIAL_PORT       = SCANNER_CONFIG["serial"]["port"]
+SERIAL_BAUDRATE   = SCANNER_CONFIG["serial"]["baudrate"]
+
+# Camera configuration from config file
+_preview_res = SCANNER_CONFIG["camera"]["preview_resolution"].split("x")
+CAMERA_RESOLUTION = (int(_preview_res[0]), int(_preview_res[1]))
+PREVIEW_COLOR_SWAP = SCANNER_CONFIG["camera"]["preview_color_swap"]
+
+# UI configuration from config file
+JOG_STEP_DELAY = SCANNER_CONFIG["ui"]["jog_step_delay"]
 
 # Common resolution presets (WxH) for preview/capture
 RESOLUTION_PRESETS = [
@@ -299,11 +414,11 @@ RESOLUTION_PRESETS = [
     "3280x2464", "3840x2160", "4056x3040"
 ]
 
-# Capture defaults
-DEFAULT_OUTPUT_DIR = os.path.expanduser("~/Desktop/scanner_captures")
-DEFAULT_STACKS = 5
-DEFAULT_SHOTS_PER_STACK = 72  # 5-degree increments for 360°
-DEFAULT_SETTLE_DELAY = 1.0    # seconds to wait after movement before capture
+# Capture defaults from config file
+DEFAULT_OUTPUT_DIR = os.path.expanduser(SCANNER_CONFIG["capture"]["output_dir"])
+DEFAULT_STACKS = SCANNER_CONFIG["capture"]["default_focus_slices"]
+DEFAULT_SHOTS_PER_STACK = SCANNER_CONFIG["capture"]["default_perspectives"]
+DEFAULT_SETTLE_DELAY = SCANNER_CONFIG["capture"]["settle_delay"]
 
 # Cardinal angles for calibration
 CALIBRATION_ANGLES = [0, 90, 180, 270]
@@ -361,9 +476,14 @@ class ScannerGUI(tk.Tk):
         # self.after(100, self._maintain_focus)
 
         # === Serial Setup ===
+        config_source = SCANNER_CONFIG.get("_loaded_from", "defaults")
         try:
             self.ser = serial.Serial(SERIAL_PORT, SERIAL_BAUDRATE, timeout=0.1)
-            self.status_var = tk.StringVar(value="Connected to Arduino")
+            if "_loaded_from" in SCANNER_CONFIG:
+                config_file = os.path.basename(config_source)
+                self.status_var = tk.StringVar(value=f"Connected to Arduino | Config: {config_file}")
+            else:
+                self.status_var = tk.StringVar(value="Connected to Arduino | Using default config")
         except serial.SerialException as e:
             self.status_var = tk.StringVar(value=f"Serial Error: {e}")
             self.ser = None
@@ -389,13 +509,14 @@ class ScannerGUI(tk.Tk):
         self.current_calibration_angle = 0
         self.current_calibration_focus = "near"
         
-        # === XMP pose settings ===
-        self.lens_to_object_mm = tk.DoubleVar(value=250.0)  # Distance from lens to object center
-        self.rail_to_horizon_deg = tk.DoubleVar(value=0.0)  # Camera pitch from horizontal
+        # === XMP pose settings (from config) ===
+        xmp_config = SCANNER_CONFIG.get("xmp", {})
+        self.lens_to_object_mm = tk.DoubleVar(value=xmp_config.get("lens_to_object_mm", 250.0))
+        self.rail_to_horizon_deg = tk.DoubleVar(value=xmp_config.get("rail_to_horizon_deg", 0.0))
         
         # === Camera calibration parameters for XMP ===
-        self.focal_length_35mm = tk.DoubleVar(value=50.0)  # 35mm equivalent focal length
-        self.distortion_model = tk.StringVar(value="brown3")  # Lens distortion model
+        self.focal_length_35mm = tk.DoubleVar(value=xmp_config.get("focal_length_35mm", 50.0))
+        self.distortion_model = tk.StringVar(value=xmp_config.get("distortion_model", "brown3"))
         self.skew = tk.DoubleVar(value=0.0)  # Camera skew parameter
         self.aspect_ratio = tk.DoubleVar(value=1.0)  # Pixel aspect ratio
         self.principal_point_u = tk.DoubleVar(value=0.0)  # Principal point U (normalized)
@@ -449,6 +570,21 @@ class ScannerGUI(tk.Tk):
         self.capture_progress = tk.DoubleVar(value=0.0)
         self.capture_running = False
         self.capture_thread = None
+        
+        # === Guided Capture settings ===
+        self.guided_stack_depth_mm = tk.DoubleVar(value=1.0)      # Total stack depth in mm
+        self.guided_slices_per_stack = tk.IntVar(value=10)        # Number of focus slices per stack
+        self.guided_tilt_levels = tk.IntVar(value=3)              # Number of vertical tilt levels
+        self.guided_stacks_per_rotation = tk.IntVar(value=36)     # Stacks per full rotation (360°)
+        self.guided_start_tilt = tk.DoubleVar(value=-30.0)        # Starting tilt angle (bottom)
+        self.guided_end_tilt = tk.DoubleVar(value=30.0)           # Ending tilt angle (top)
+        self.guided_start_rail_mm = tk.DoubleVar(value=50.0)      # Near-plane rail position
+        
+        # Guided capture state
+        self.guided_position_list = []       # List of (rotation°, tilt°, rail_mm) tuples
+        self.guided_current_index = 0        # Current position in the list
+        self.guided_session_dir = None       # Output directory for current session
+        self.guided_capture_active = False   # Whether guided session is in progress
 
         # === Rotation mapping (app-level, no firmware changes) ===
         # rotation_scale: how many firmware degrees to command for 1° of desired movement
@@ -510,6 +646,11 @@ class ScannerGUI(tk.Tk):
         self.capture_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.capture_tab, text="Capture & Camera")
         self._build_capture_and_camera_tab()
+        
+        # === Guided Capture Tab ===
+        self.guided_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.guided_tab, text="Guided Capture")
+        self._build_guided_capture_tab()
         
         self.notebook.pack(fill="both", expand=True)
         
@@ -1551,6 +1692,8 @@ How to calibrate (advanced):
             self.cal_preview_label.config(image=photo)
             if hasattr(self, 'camera_preview_label'):
                 self.camera_preview_label.config(image=photo)
+            if hasattr(self, 'guided_preview_label'):
+                self.guided_preview_label.config(image=photo)
             
             # Throttle updates a bit to reduce CPU load
             self.after(150, self._update_preview_frame)
@@ -2379,6 +2522,451 @@ How to calibrate (advanced):
         def _worker():
             self.move_to_angle(target_angle)
         threading.Thread(target=_worker, daemon=True).start()
+    
+    def _build_guided_capture_tab(self):
+        """Build the guided capture tab for step-by-step spherical scanning"""
+        main_frame = ttk.Frame(self.guided_tab)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        # Left column: Settings and position list
+        left_column = ttk.Frame(main_frame)
+        left_column.pack(side="left", fill="both", expand=True, padx=(0,5))
+        
+        # Right column: Preview and capture controls
+        right_column = ttk.Frame(main_frame)
+        right_column.pack(side="right", fill="both", expand=True, padx=(5,0))
+        
+        # === LEFT COLUMN ===
+        
+        # Scan Parameters Frame
+        params_frame = ttk.LabelFrame(left_column, text="Scan Parameters", padding=10)
+        params_frame.pack(fill="x", pady=(0,5))
+        
+        # Stack depth
+        ttk.Label(params_frame, text="Stack Depth (mm):").grid(row=0, column=0, sticky="w", pady=2)
+        ttk.Spinbox(params_frame, from_=0.1, to=50.0, increment=0.1,
+                   textvariable=self.guided_stack_depth_mm, width=10).grid(row=0, column=1, sticky="w", padx=5)
+        
+        # Slices per stack
+        ttk.Label(params_frame, text="Slices per Stack:").grid(row=1, column=0, sticky="w", pady=2)
+        ttk.Spinbox(params_frame, from_=1, to=100, 
+                   textvariable=self.guided_slices_per_stack, width=10).grid(row=1, column=1, sticky="w", padx=5)
+        
+        # Slice step display
+        self.guided_slice_step_var = tk.StringVar(value="Step: --")
+        ttk.Label(params_frame, textvariable=self.guided_slice_step_var).grid(row=1, column=2, sticky="w", padx=10)
+        
+        # Stacks per rotation
+        ttk.Label(params_frame, text="Stacks per Rotation:").grid(row=2, column=0, sticky="w", pady=2)
+        ttk.Spinbox(params_frame, from_=1, to=360,
+                   textvariable=self.guided_stacks_per_rotation, width=10).grid(row=2, column=1, sticky="w", padx=5)
+        
+        # Angle step display
+        self.guided_angle_step_var = tk.StringVar(value="Angle: --")
+        ttk.Label(params_frame, textvariable=self.guided_angle_step_var).grid(row=2, column=2, sticky="w", padx=10)
+        
+        # Tilt levels
+        ttk.Label(params_frame, text="Tilt Levels:").grid(row=3, column=0, sticky="w", pady=2)
+        ttk.Spinbox(params_frame, from_=1, to=20, 
+                   textvariable=self.guided_tilt_levels, width=10).grid(row=3, column=1, sticky="w", padx=5)
+        
+        # Tilt range
+        ttk.Label(params_frame, text="Tilt Range (°):").grid(row=4, column=0, sticky="w", pady=2)
+        tilt_range_frame = ttk.Frame(params_frame)
+        tilt_range_frame.grid(row=4, column=1, columnspan=2, sticky="w", padx=5)
+        ttk.Spinbox(tilt_range_frame, from_=-90, to=90, width=6,
+                   textvariable=self.guided_start_tilt).pack(side="left")
+        ttk.Label(tilt_range_frame, text=" to ").pack(side="left")
+        ttk.Spinbox(tilt_range_frame, from_=-90, to=90, width=6,
+                   textvariable=self.guided_end_tilt).pack(side="left")
+        
+        # Near plane position
+        ttk.Label(params_frame, text="Near Plane (mm):").grid(row=5, column=0, sticky="w", pady=2)
+        ttk.Spinbox(params_frame, from_=0, to=200, increment=0.5,
+                   textvariable=self.guided_start_rail_mm, width=10).grid(row=5, column=1, sticky="w", padx=5)
+        
+        # Update computed values when params change
+        def update_computed(*_):
+            try:
+                depth = self.guided_stack_depth_mm.get()
+                slices = max(1, self.guided_slices_per_stack.get())
+                stacks = max(1, self.guided_stacks_per_rotation.get())
+                step_mm = depth / slices if slices > 1 else depth
+                angle_deg = 360.0 / stacks
+                self.guided_slice_step_var.set(f"Step: {step_mm:.3f}mm")
+                self.guided_angle_step_var.set(f"Angle: {angle_deg:.1f}°")
+            except:
+                pass
+        
+        for var in [self.guided_stack_depth_mm, self.guided_slices_per_stack, self.guided_stacks_per_rotation]:
+            try:
+                var.trace_add('write', update_computed)
+            except AttributeError:
+                var.trace('w', update_computed)
+        update_computed()
+        
+        # Generate Plan button
+        ttk.Button(params_frame, text="Generate Capture Plan", 
+                  command=self._generate_guided_plan).grid(row=6, column=0, columnspan=3, pady=(10,0))
+        
+        # Position List Frame
+        list_frame = ttk.LabelFrame(left_column, text="Capture Plan", padding=10)
+        list_frame.pack(fill="both", expand=True, pady=5)
+        
+        # Position listbox with scrollbar
+        list_container = ttk.Frame(list_frame)
+        list_container.pack(fill="both", expand=True)
+        
+        self.guided_position_listbox = tk.Listbox(list_container, height=15, width=45, 
+                                                   selectmode="single", font=("Courier", 9))
+        self.guided_position_listbox.pack(side="left", fill="both", expand=True)
+        
+        list_scrollbar = ttk.Scrollbar(list_container, orient="vertical", 
+                                       command=self.guided_position_listbox.yview)
+        list_scrollbar.pack(side="right", fill="y")
+        self.guided_position_listbox.config(yscrollcommand=list_scrollbar.set)
+        
+        # Summary label
+        self.guided_summary_var = tk.StringVar(value="No plan generated")
+        ttk.Label(list_frame, textvariable=self.guided_summary_var).pack(pady=(5,0))
+        
+        # === RIGHT COLUMN ===
+        
+        # Camera Preview Frame
+        preview_frame = ttk.LabelFrame(right_column, text="Preview", padding=10)
+        preview_frame.pack(fill="both", expand=True, pady=(0,5))
+        
+        self.guided_preview_label = tk.Label(preview_frame, bg="black", anchor="center")
+        self.guided_preview_label.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        ttk.Button(preview_frame, text="Toggle Preview", 
+                  command=self.toggle_preview).pack(pady=(0,5))
+        
+        # Current Position Frame
+        pos_frame = ttk.LabelFrame(right_column, text="Current Stack", padding=10)
+        pos_frame.pack(fill="x", pady=5)
+        
+        self.guided_current_pos_var = tk.StringVar(value="No stack selected")
+        ttk.Label(pos_frame, textvariable=self.guided_current_pos_var, 
+                 font=("TkDefaultFont", 11, "bold")).pack(pady=5)
+        
+        self.guided_stack_progress_var = tk.StringVar(value="Stack 0 of 0")
+        ttk.Label(pos_frame, textvariable=self.guided_stack_progress_var).pack()
+        
+        # Capture Controls Frame
+        control_frame = ttk.LabelFrame(right_column, text="Controls", padding=10)
+        control_frame.pack(fill="x", pady=5)
+        
+        # Start/Resume session
+        self.btn_guided_start = ttk.Button(control_frame, text="Start Session", 
+                                           command=self._start_guided_session)
+        self.btn_guided_start.pack(fill="x", pady=2)
+        
+        # Move to position and capture
+        self.btn_guided_goto = ttk.Button(control_frame, text="Go to Position", 
+                                          command=self._guided_goto_position, state="disabled")
+        self.btn_guided_goto.pack(fill="x", pady=2)
+        
+        self.btn_guided_capture = ttk.Button(control_frame, text="Capture Stack", 
+                                             command=self._guided_capture_stack, state="disabled")
+        self.btn_guided_capture.pack(fill="x", pady=2)
+        
+        # Next position
+        self.btn_guided_next = ttk.Button(control_frame, text="Next Position →", 
+                                          command=self._guided_next_position, state="disabled")
+        self.btn_guided_next.pack(fill="x", pady=2)
+        
+        # End session
+        self.btn_guided_end = ttk.Button(control_frame, text="End Session", 
+                                         command=self._end_guided_session, state="disabled")
+        self.btn_guided_end.pack(fill="x", pady=(10,2))
+        
+        # Capture Log
+        log_frame = ttk.LabelFrame(right_column, text="Log", padding=5)
+        log_frame.pack(fill="both", expand=True, pady=(5,0))
+        
+        self.guided_log_text = tk.Text(log_frame, height=6, width=40, font=("TkDefaultFont", 8))
+        self.guided_log_text.pack(side="left", fill="both", expand=True)
+        
+        log_scrollbar = ttk.Scrollbar(log_frame, orient="vertical", 
+                                      command=self.guided_log_text.yview)
+        log_scrollbar.pack(side="right", fill="y")
+        self.guided_log_text.config(yscrollcommand=log_scrollbar.set)
+    
+    def _generate_guided_plan(self):
+        """Generate the list of capture positions for guided spherical scan"""
+        self.guided_position_list = []
+        self.guided_position_listbox.delete(0, tk.END)
+        
+        tilt_levels = max(1, self.guided_tilt_levels.get())
+        stacks_per_rot = max(1, self.guided_stacks_per_rotation.get())
+        start_tilt = self.guided_start_tilt.get()
+        end_tilt = self.guided_end_tilt.get()
+        near_plane = self.guided_start_rail_mm.get()
+        
+        # Calculate tilt angles
+        if tilt_levels == 1:
+            tilts = [(start_tilt + end_tilt) / 2.0]
+        else:
+            tilt_step = (end_tilt - start_tilt) / (tilt_levels - 1)
+            tilts = [start_tilt + i * tilt_step for i in range(tilt_levels)]
+        
+        # Calculate rotation angles
+        angle_step = 360.0 / stacks_per_rot
+        
+        # Generate positions: for each tilt level, rotate around
+        stack_idx = 0
+        for tilt in tilts:
+            for rot_idx in range(stacks_per_rot):
+                rotation = rot_idx * angle_step
+                pos = (rotation, tilt, near_plane)
+                self.guided_position_list.append(pos)
+                
+                # Add to listbox
+                entry = f"{stack_idx:3d}: Rot {rotation:6.1f}°  Tilt {tilt:+5.1f}°  Rail {near_plane:.1f}mm"
+                self.guided_position_listbox.insert(tk.END, entry)
+                stack_idx += 1
+        
+        total = len(self.guided_position_list)
+        total_images = total * self.guided_slices_per_stack.get()
+        self.guided_summary_var.set(f"{total} stacks × {self.guided_slices_per_stack.get()} slices = {total_images} images")
+        self._log_guided(f"Generated plan: {total} positions")
+    
+    def _log_guided(self, message):
+        """Add message to guided capture log"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.guided_log_text.insert(tk.END, f"[{timestamp}] {message}\n")
+        self.guided_log_text.see(tk.END)
+    
+    def _start_guided_session(self):
+        """Initialize a new guided capture session"""
+        if not self.guided_position_list:
+            messagebox.showwarning("No Plan", "Please generate a capture plan first.")
+            return
+        
+        # Create session directory
+        specimen_dir = os.path.join(self.output_dir.get(), self.specimen_name.get())
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.guided_session_dir = os.path.join(specimen_dir, f"guided_session_{timestamp}")
+        os.makedirs(self.guided_session_dir, exist_ok=True)
+        
+        # Save session metadata
+        metadata = {
+            "type": "guided_spherical",
+            "timestamp": timestamp,
+            "specimen_name": self.specimen_name.get(),
+            "stack_depth_mm": self.guided_stack_depth_mm.get(),
+            "slices_per_stack": self.guided_slices_per_stack.get(),
+            "tilt_levels": self.guided_tilt_levels.get(),
+            "stacks_per_rotation": self.guided_stacks_per_rotation.get(),
+            "tilt_range": [self.guided_start_tilt.get(), self.guided_end_tilt.get()],
+            "near_plane_mm": self.guided_start_rail_mm.get(),
+            "total_stacks": len(self.guided_position_list),
+            "positions": self.guided_position_list
+        }
+        with open(os.path.join(self.guided_session_dir, "metadata.json"), 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        # Initialize state
+        self.guided_current_index = 0
+        self.guided_capture_active = True
+        
+        # Update UI
+        self.btn_guided_start.config(state="disabled")
+        self.btn_guided_goto.config(state="normal")
+        self.btn_guided_capture.config(state="normal")
+        self.btn_guided_next.config(state="normal")
+        self.btn_guided_end.config(state="normal")
+        
+        self._update_guided_display()
+        self._log_guided(f"Session started: {self.guided_session_dir}")
+        
+        # Start preview if not already on
+        if not self.preview_on:
+            self.toggle_preview()
+    
+    def _update_guided_display(self):
+        """Update the current position display"""
+        if not self.guided_position_list:
+            return
+        
+        idx = self.guided_current_index
+        total = len(self.guided_position_list)
+        
+        if idx < total:
+            rot, tilt, rail = self.guided_position_list[idx]
+            self.guided_current_pos_var.set(f"Rot: {rot:.1f}°  Tilt: {tilt:+.1f}°  Rail: {rail:.1f}mm")
+            self.guided_stack_progress_var.set(f"Stack {idx + 1} of {total}")
+            
+            # Highlight in listbox
+            self.guided_position_listbox.selection_clear(0, tk.END)
+            self.guided_position_listbox.selection_set(idx)
+            self.guided_position_listbox.see(idx)
+        else:
+            self.guided_current_pos_var.set("All stacks complete!")
+            self.guided_stack_progress_var.set(f"Completed {total} stacks")
+    
+    def _guided_goto_position(self):
+        """Move motors to the current guided position"""
+        if not self.guided_capture_active or self.guided_current_index >= len(self.guided_position_list):
+            return
+        
+        rot, tilt, rail = self.guided_position_list[self.guided_current_index]
+        self._log_guided(f"Moving to: Rot={rot:.1f}° Tilt={tilt:+.1f}° Rail={rail:.1f}mm")
+        
+        # Move motors in sequence
+        def move_sequence():
+            # Move rotation
+            self.move_to_angle(rot)
+            time.sleep(0.2)
+            
+            # Move tilt (if motor 3 exists)
+            if hasattr(self, 'move_to_elevation'):
+                self.move_to_elevation(tilt)
+                time.sleep(0.2)
+            
+            # Move rail to near plane
+            self.move_to_focus_position(rail)
+            
+            self.after(0, lambda: self._log_guided("Position reached - adjust specimen if needed"))
+            self.after(0, lambda: self.status_var.set("Ready for capture"))
+        
+        threading.Thread(target=move_sequence, daemon=True).start()
+    
+    def _guided_capture_stack(self):
+        """Capture a full focus stack at the current position"""
+        if not self.guided_capture_active:
+            return
+        
+        idx = self.guided_current_index
+        if idx >= len(self.guided_position_list):
+            self._log_guided("No more positions to capture")
+            return
+        
+        rot, tilt, rail_start = self.guided_position_list[idx]
+        depth = self.guided_stack_depth_mm.get()
+        slices = self.guided_slices_per_stack.get()
+        
+        # Determine padding width
+        total_stacks = len(self.guided_position_list)
+        pad_width = max(2, len(str(total_stacks - 1)))
+        
+        # Create stack directory
+        stack_dir = os.path.join(self.guided_session_dir, f"stack_{idx:0{pad_width}d}")
+        os.makedirs(stack_dir, exist_ok=True)
+        
+        self._log_guided(f"Capturing stack {idx}: {slices} slices, {depth:.2f}mm depth")
+        
+        def capture_sequence():
+            try:
+                # Disable buttons during capture
+                self.after(0, lambda: self.btn_guided_capture.config(state="disabled"))
+                self.after(0, lambda: self.btn_guided_goto.config(state="disabled"))
+                self.after(0, lambda: self.btn_guided_next.config(state="disabled"))
+                
+                # Capture from near to far
+                for slice_idx in range(slices):
+                    # Calculate rail position: near → far
+                    if slices > 1:
+                        fraction = slice_idx / (slices - 1)
+                    else:
+                        fraction = 0
+                    rail_pos = rail_start + (fraction * depth)
+                    
+                    # Move to focus position
+                    self.move_to_focus_position(rail_pos)
+                    time.sleep(self.settle_delay.get())
+                    
+                    # Capture image
+                    filename = f"stack_{idx:0{pad_width}d}_slice_{slice_idx:03d}.{self.image_format.get().lower()}"
+                    filepath = os.path.join(stack_dir, filename)
+                    
+                    self.capture_image(filepath)
+                    self.after(0, lambda s=slice_idx: self._log_guided(f"  Slice {s+1}/{slices} captured"))
+                
+                # Generate XMP for this stack using current actual position
+                self._generate_guided_xmp(idx, rot, tilt, stack_dir, pad_width)
+                
+                self.after(0, lambda: self._log_guided(f"Stack {idx} complete"))
+                self.after(0, lambda: self.status_var.set(f"Stack {idx} captured successfully"))
+                
+            except Exception as e:
+                self.after(0, lambda: self._log_guided(f"ERROR: {e}"))
+                self.after(0, lambda: messagebox.showerror("Capture Error", str(e)))
+            finally:
+                # Re-enable buttons
+                self.after(0, lambda: self.btn_guided_capture.config(state="normal"))
+                self.after(0, lambda: self.btn_guided_goto.config(state="normal"))
+                self.after(0, lambda: self.btn_guided_next.config(state="normal"))
+        
+        threading.Thread(target=capture_sequence, daemon=True).start()
+    
+    def _generate_guided_xmp(self, idx, rotation, tilt, stack_dir, pad_width):
+        """Generate XMP sidecar for a guided capture stack"""
+        try:
+            lens_dist = float(self.lens_to_object_mm.get())
+            position_scale = float(self.xmp_position_scale.get())
+            scaled_radius = lens_dist * position_scale / 1000.0
+            
+            # Use spherical pose
+            pose = spherical_pose(scaled_radius, rotation, tilt)
+            
+            # XMP filename
+            xmp_filename = f"stack_{idx:0{pad_width}d}_rot_{rotation:06.2f}_tilt_{tilt:+06.2f}.xmp"
+            xmp_path = os.path.join(stack_dir, xmp_filename)
+            
+            write_xmp_sidecar(
+                xmp_path.replace('.xmp', '.jpg'),
+                pose,
+                lens_dist,
+                tilt,
+                rotation,
+                idx,
+                focal_length_35mm=VERIFIED_FOCAL_LENGTH_35MM,
+                distortion_model=VERIFIED_DISTORTION_MODEL,
+                skew=VERIFIED_SKEW,
+                aspect_ratio=VERIFIED_ASPECT_RATIO,
+                principal_point_u=VERIFIED_PRINCIPAL_POINT_U,
+                principal_point_v=VERIFIED_PRINCIPAL_POINT_V,
+                distortion_coefficients=VERIFIED_DISTORTION_COEFFS,
+                position_scale=1.0,
+                pose_prior=VERIFIED_POSE_PRIOR,
+                calibration_prior=VERIFIED_CALIB_PRIOR,
+            )
+        except Exception as e:
+            self.after(0, lambda: self._log_guided(f"XMP warning: {e}"))
+    
+    def _guided_next_position(self):
+        """Advance to the next position in the guided capture list"""
+        if not self.guided_capture_active:
+            return
+        
+        self.guided_current_index += 1
+        
+        if self.guided_current_index >= len(self.guided_position_list):
+            self._log_guided("All positions complete!")
+            self._end_guided_session()
+        else:
+            self._update_guided_display()
+            self._log_guided(f"Moved to position {self.guided_current_index + 1}")
+    
+    def _end_guided_session(self):
+        """End the current guided capture session"""
+        self.guided_capture_active = False
+        
+        # Update UI
+        self.btn_guided_start.config(state="normal")
+        self.btn_guided_goto.config(state="disabled")
+        self.btn_guided_capture.config(state="disabled")
+        self.btn_guided_next.config(state="disabled")
+        self.btn_guided_end.config(state="disabled")
+        
+        completed = self.guided_current_index
+        total = len(self.guided_position_list)
+        self._log_guided(f"Session ended: {completed}/{total} stacks captured")
+        
+        if self.guided_session_dir:
+            self._log_guided(f"Output: {self.guided_session_dir}")
     
     def move_to_elevation(self, target_elevation):
         """Move tilt motor to specific elevation angle (synchronous).

@@ -1,0 +1,44 @@
+{
+  "_comment": "Example scanner configuration. Copy to scanner_config.json and customize.",
+  "_comment2": "Only include the settings you want to change - defaults are loaded automatically.",
+  
+  "profile": "raspberry_pi_3axis",
+  
+  "serial": {
+    "port": "/dev/ttyACM0",
+    "baudrate": 115200,
+    "timeout": 0.1,
+    "_comment": "Use /dev/serial/by-id/... for more stable device identification"
+  },
+  
+  "camera": {
+    "preview_resolution": "640x480",
+    "capture_resolution": "4056x3040",
+    "preview_color_swap": true,
+    "_comment": "preview_color_swap: true for BGR->RGB conversion (Pi Camera)"
+  },
+  
+  "capture": {
+    "output_dir": "~/Desktop/scanner_captures",
+    "default_perspectives": 72,
+    "default_focus_slices": 5,
+    "settle_delay": 1.0,
+    "image_format": "JPG",
+    "_comment": "perspectives: number of rotational positions (72 = 5° steps for full 360°)"
+  },
+  
+  "xmp": {
+    "lens_to_object_mm": 250.0,
+    "rail_to_horizon_deg": 0.0,
+    "position_scale": 1.0,
+    "focal_length_35mm": 50.0,
+    "distortion_model": "brown3",
+    "_comment": "These values customize XMP sidecar generation for RealityScan/RealityCapture"
+  },
+  
+  "ui": {
+    "always_on_top": true,
+    "jog_step_delay": 0.05,
+    "_comment": "jog_step_delay: seconds between motor steps during continuous jog"
+  }
+}

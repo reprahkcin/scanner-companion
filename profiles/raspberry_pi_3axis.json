@@ -73,6 +73,63 @@
     }
   ],
   
+  "arduino_hardware": {
+    "_comment": "Pin definitions and driver settings for Arduino firmware",
+    
+    "motors": {
+      "M1": {
+        "step_pin": 2,
+        "dir_pin": 3,
+        "enable_pin": 13,
+        "limit_switch_pin": null,
+        "driver_type": "TB6600",
+        "microstepping": 32,
+        "steps_per_revolution": 200,
+        "gear_ratio": 1.0,
+        "pulse_delay_us": 800,
+        "dir_inverted": false,
+        "_comment": "Turntable: 200 steps × 32 microsteps = 6400 pulses/rev"
+      },
+      "M2": {
+        "step_pin": 4,
+        "dir_pin": 5,
+        "enable_pin": 12,
+        "limit_switch_pin": 7,
+        "driver_type": "TB6600",
+        "microstepping": 32,
+        "steps_per_revolution": 200,
+        "lead_screw_pitch_mm": 5.0,
+        "pulse_delay_us": 500,
+        "dir_inverted": false,
+        "_comment": "Focus rail: Calibrated to 1281.21 steps/mm"
+      },
+      "M3": {
+        "step_pin": 9,
+        "dir_pin": 10,
+        "enable_pin": 11,
+        "limit_switch_pin": 8,
+        "driver_type": "TB6600",
+        "microstepping": 32,
+        "steps_per_revolution": 200,
+        "gear_ratio": 5.0,
+        "pulse_delay_us": 1500,
+        "dir_inverted": false,
+        "_comment": "Tilt: 5:1 planetary gearbox, slow for stability"
+      }
+    },
+    
+    "driver_settings": {
+      "enable_active_high": true,
+      "_comment": "TB6600: ENA+ to 5V, ENA- to pin → HIGH enables motor"
+    },
+    
+    "power_relay": {
+      "pin": "A0",
+      "active_low": true,
+      "_comment": "LOW-trigger relay module: LOW = relay energized = 24V ON"
+    }
+  },
+  
   "axis_controller_map": {
     "M1": "arduino",
     "M2": "arduino",
@@ -127,13 +184,6 @@
       "home_orientation": [-1, 0, 0],
       "notes": "Camera faces -X direction (toward origin). Position changes with M2 (focus rail)."
     }
-  },
-  
-  "power_relay": {
-    "enabled": true,
-    "controller": "arduino",
-    "pin": "A0",
-    "active_low": true
   },
   
   "scan_defaults": {

@@ -284,11 +284,18 @@ scaled_distance, scale_factor = auto_scale_positions(distance_mm)
 ```
 scanner-companion/
 ├── scanner_control.py          # Main app (2800+ lines)
+│   ├── load_scanner_config()  # Config file loading
+│   ├── load_hardware_profile() # Hardware profile loading
 │   ├── ring_pose()            # Camera pose math
 │   ├── spherical_pose()       # Spherical pose math
 │   ├── write_xmp_sidecar()    # XMP generation
 │   ├── ScannerGUI class       # Tkinter application
 │   └── VERIFIED_* constants   # Locked XMP parameters
+├── scanner_config.json         # LOCAL (gitignored) - per-scanner configuration
+├── scanner_config.example.json # Template config file (tracked)
+├── profiles/                   # Hardware profiles
+│   ├── raspberry_pi_3axis.json # MKI 3-axis scanner profile
+│   └── sherline_6axis.json     # Future: Sherline CNC-based scanner
 ├── arduino/
 │   └── scanner_controller/
 │       └── scanner_controller.ino  # Motor control firmware
@@ -303,11 +310,92 @@ scanner-companion/
 └── legacy/                    # Development history (v1-v4)
 ```
 
+## Configuration System
+
+The scanner uses a two-tier configuration system:
+
+### 1. Local Config (`scanner_config.json`)
+Per-scanner settings that override defaults. **Not tracked in git** - each scanner instance has its own.
+
+**Location search order:**
+1. `./scanner_config.json` (current directory)
+2. `~/.scanner_config.json` (user home)
+3. Built-in defaults
+
+**Example config:**
+```json
+{
+  "profile": "raspberry_pi_3axis",
+  "serial": {
+    "port": "/dev/ttyACM0",
+    "baudrate": 115200
+  },
+  "camera": {
+    "preview_resolution": "640x480",
+    "capture_resolution": "4056x3040"
+  },
+  "capture": {
+    "output_dir": "~/Desktop/scanner_captures",
+    "default_perspectives": 72,
+    "default_focus_slices": 5
+  },
+  "xmp": {
+    "lens_to_object_mm": 250.0,
+    "focal_length_35mm": 50.0
+  }
+}
+```
+
+**Key settings:**
+- `profile`: Which hardware profile to load (e.g., "raspberry_pi_3axis")
+- `serial.port`: Arduino serial port (use `/dev/serial/by-id/...` for stability)
+- `capture.output_dir`: Where to save capture sessions
+- `xmp.*`: Default XMP sidecar parameters
+
+### 2. Hardware Profiles (`profiles/*.json`)
+Define scanner hardware capabilities. **Tracked in git** - shared across installations.
+
+**Profile contents:**
+- Axis definitions (rotation, linear, tilt)
+- Motor calibration constants
+- Scene geometry defaults
+- Scan parameter defaults
+- **Arduino hardware configuration** (pinouts, drivers, microstepping)
+
+**Arduino Hardware Section** (`arduino_hardware` in profile):
+```json
+"arduino_hardware": {
+  "motors": {
+    "M1": {
+      "step_pin": 2, "dir_pin": 3, "enable_pin": 13,
+      "driver_type": "TB6600", "microstepping": 32,
+      "pulse_delay_us": 800, "dir_inverted": false
+    }
+  },
+  "driver_settings": { "enable_active_high": true },
+  "power_relay": { "pin": "A0", "active_low": true }
+}
+```
+
+**Generate Arduino Config Headers:**
+```bash
+python3 generate_arduino_config.py raspberry_pi_3axis
+# Generates: arduino/config_raspberry_pi_3axis.h
+```
+
+**Adding a new scanner version:**
+1. Create new profile in `profiles/` (e.g., `mkii_shield.json`)
+2. Copy `scanner_config.example.json` to `scanner_config.json`
+3. Set `"profile": "mkii_shield"` in local config
+4. Run `python3 generate_arduino_config.py mkii_shield` to generate Arduino header
+5. Include header in Arduino sketch: `#include "config_mkii_shield.h"`
+
 ## Configuration & Settings
 
 **Serial Connection** (`SERIAL_PORT = "/dev/ttyACM0"`):
 - Raspberry Pi typically auto-assigns `/dev/ttyACM0` for Arduino Uno
 - Check with `ls /dev/ttyACM*` or use `/dev/serial/by-id/...` for stability
+- **Now configurable via `scanner_config.json`**
 
 **Camera Defaults**:
 - Preview: 640x480 (performance)

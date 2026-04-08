@@ -1,0 +1,159 @@
+{
+  "name": "mkii_shield",
+  "description": "MKII Scanner: 2-axis using Adafruit Motor Shield v2.3 with rotation and linear rail",
+  "version": "1.0",
+  
+  "axes": [
+    {
+      "name": "M1",
+      "label": "Rotation Platform",
+      "axis_type": "rotary",
+      "units": "deg",
+      "min_limit": 0.0,
+      "max_limit": 360.0,
+      "home_position": 0.0,
+      "steps_per_unit": 1.111,
+      "max_velocity": 5.0,
+      "acceleration": 10.0,
+      "controller_axis": "",
+      "motor_index": 1,
+      "inverted": false,
+      "has_home_switch": false,
+      "home_direction": -1,
+      "role": "turntable",
+      "_comment": "INTERLEAVE mode: 400 steps/rev ÷ 360° = 1.111 steps/deg"
+    },
+    {
+      "name": "M2",
+      "label": "Camera Rail",
+      "axis_type": "linear",
+      "units": "mm",
+      "min_limit": 0.0,
+      "max_limit": 100.0,
+      "home_position": 0.0,
+      "steps_per_unit": 400.0,
+      "max_velocity": 30.0,
+      "acceleration": 50.0,
+      "controller_axis": "",
+      "motor_index": 2,
+      "inverted": false,
+      "has_home_switch": false,
+      "home_direction": -1,
+      "role": "focus_rail",
+      "_comment": "MICROSTEP mode: 3200 steps/rev, 8mm lead screw = 400 steps/mm"
+    }
+  ],
+  
+  "controllers": [
+    {
+      "controller_type": "arduino_serial",
+      "name": "arduino",
+      "port": "/dev/ttyACM0",
+      "baudrate": 115200,
+      "settings": {
+        "command_timeout": 30.0,
+        "position_query_enabled": true
+      }
+    }
+  ],
+  
+  "arduino_hardware": {
+    "_comment": "Adafruit Motor Shield v2.3 configuration",
+    
+    "shield": {
+      "type": "Adafruit Motor Shield v2.3",
+      "i2c_address": "0x60",
+      "library": "Adafruit_MotorShield"
+    },
+    
+    "motors": {
+      "M1": {
+        "shield_port": 1,
+        "terminals": "M1+M2",
+        "motor_type": "stepper",
+        "steps_per_revolution": 200,
+        "stepping_mode": "INTERLEAVE",
+        "gear_ratio": 1.0,
+        "speed_rpm": 5.0,
+        "dir_inverted": false,
+        "_comment": "Rotary table - INTERLEAVE for torque (400 half-steps/rev)"
+      },
+      "M2": {
+        "shield_port": 2,
+        "terminals": "M3+M4",
+        "motor_type": "stepper",
+        "steps_per_revolution": 200,
+        "stepping_mode": "MICROSTEP",
+        "lead_screw_pitch_mm": 8.0,
+        "speed_rpm": 30.0,
+        "dir_inverted": false,
+        "_comment": "Camera rail - MICROSTEP for smoothness (3200 microsteps/rev)"
+      }
+    },
+    
+    "stepping_modes": {
+      "_reference": "Adafruit Motor Shield stepping styles",
+      "SINGLE": "One coil at a time - lowest power, 200 steps/rev",
+      "DOUBLE": "Both coils energized - highest torque, 200 steps/rev",
+      "INTERLEAVE": "Half-stepping - good torque + smooth, 400 steps/rev",
+      "MICROSTEP": "Smoothest motion but lowest torque, 3200 steps/rev"
+    }
+  },
+  
+  "axis_controller_map": {
+    "M1": "arduino",
+    "M2": "arduino"
+  },
+  
+  "scene_geometry": {
+    "coordinate_system": "Z-up, right-handed",
+    "description": "Camera on X-axis rail pointing at specimen. Specimen rotates on Z-axis turntable.",
+    
+    "specimen": {
+      "position": [0, 0, 0],
+      "mounted_on": "M1",
+      "notes": "Specimen fixed to turntable platform"
+    },
+    
+    "axes_geometry": {
+      "M1": {
+        "role": "turntable",
+        "motion_type": "rotation",
+        "axis_vector": [0, 0, 1],
+        "pivot_point": [0, 0, 0],
+        "positive_direction": "CCW when viewed from +Z (above)",
+        "affects": "specimen"
+      },
+      "M2": {
+        "role": "focus_rail",
+        "motion_type": "linear",
+        "axis_vector": [1, 0, 0],
+        "home_position": [50, 0, 0],
+        "travel_range": [50, 150],
+        "positive_direction": "Away from specimen (+X)",
+        "affects": "camera"
+      }
+    },
+    
+    "camera": {
+      "mounted_on": "M2",
+      "looks_at": "specimen",
+      "home_position": [50, 0, 0],
+      "home_orientation": [-1, 0, 0],
+      "notes": "Camera faces -X direction (toward origin)"
+    }
+  },
+  
+  "scan_defaults": {
+    "perspectives": 36,
+    "focus_slices": 3,
+    "settle_delay": 0.5,
+    "scan_modes": ["ring"],
+    "default_scan_mode": "ring"
+  },
+  
+  "pose_calculation": {
+    "method": "specimen_rotating",
+    "notes": "2-axis ring scan only. No tilt axis available."
+  }
+}
