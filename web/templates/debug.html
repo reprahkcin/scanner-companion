@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scanner Debug Mode</title>
+    <link rel="stylesheet" href="/static/css/debug.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <!-- Header -->
+    <header id="toolbar">
+      <h1>&#x1f527; Scanner Debug</h1>
+      <div class="toolbar-controls">
+        <select id="profile-select">
+          {% for p in profiles %}
+          <option value="{{ p }}">{{ p }}</option>
+          {% endfor %}
+        </select>
+        <label class="toggle">
+          <input type="checkbox" id="mock-toggle" checked />
+          <span>Mock</span>
+        </label>
+        <button id="connect-btn" class="btn btn-primary">Connect</button>
+        <button id="disconnect-btn" class="btn btn-danger" disabled>
+          Disconnect
+        </button>
+      </div>
+      <div id="status-indicator" class="status disconnected">Disconnected</div>
+    </header>
+
+    <!-- Main Content -->
+    <main id="content">
+      <!-- Left: Motor Controls -->
+      <aside id="motor-panel">
+        <div id="motor-cards">
+          <p class="placeholder">Select a profile and connect to see motors.</p>
+        </div>
+        <div id="global-controls">
+          <button id="home-all-btn" class="btn" disabled>Home All</button>
+          <button id="power-btn" class="btn btn-warning" disabled>
+            Power ON
+          </button>
+          <button id="stop-btn" class="btn btn-danger btn-stop" disabled>
+            EMERGENCY STOP
+          </button>
+        </div>
+      </aside>
+
+      <!-- Right: 3D Visualization -->
+      <section id="viz-panel">
+        <div id="viz-container">
+          <div id="viz-fallback" class="placeholder">
+            Loading 3D visualization...
+          </div>
+        </div>
+        <div id="viz-legend"></div>
+      </section>
+    </main>
+
+    <script type="module" src="/static/js/viz3d.js"></script>
+    <script type="module" src="/static/js/debug.js"></script>
+  </body>
+</html>

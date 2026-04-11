@@ -1,0 +1,1 @@
+# Scanner Companion - Web Interface
