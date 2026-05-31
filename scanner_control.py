@@ -87,6 +87,7 @@ def load_scanner_config():
         "camera": {
             "preview_resolution": "640x480",
             "capture_resolution": "4056x3040",
+            "preview_update_interval_ms": 300,
             "preview_color_swap": True,
             "anti_flicker_enabled": True,
             "flicker_frequency_hz": 60,
@@ -432,6 +433,9 @@ SERIAL_BAUDRATE = SCANNER_CONFIG["serial"]["baudrate"]
 _preview_res = SCANNER_CONFIG["camera"]["preview_resolution"].split("x")
 CAMERA_RESOLUTION = (int(_preview_res[0]), int(_preview_res[1]))
 PREVIEW_COLOR_SWAP = SCANNER_CONFIG["camera"]["preview_color_swap"]
+PREVIEW_UPDATE_INTERVAL_MS = max(
+    100, int(SCANNER_CONFIG["camera"].get("preview_update_interval_ms", 300))
+)
 
 # UI configuration from config file
 JOG_STEP_DELAY = SCANNER_CONFIG["ui"]["jog_step_delay"]
@@ -2136,7 +2140,7 @@ How to calibrate (advanced):
             self._update_manual_status()
             self._debug_event("preview.start.success")
             self._auto_check_test_step(2)
-            self.after(200, self._update_preview_frame)
+            self.after(PREVIEW_UPDATE_INTERVAL_MS, self._update_preview_frame)
         except Exception as e:
             self.status_var.set(f"Camera error: {e}")
             self.preview_on = False
@@ -2199,8 +2203,8 @@ How to calibrate (advanced):
             if hasattr(self, 'guided_preview_label'):
                 self.guided_preview_label.config(image=photo)
 
-            # Throttle updates a bit to reduce CPU load
-            self.after(150, self._update_preview_frame)
+            # Intentionally slow preview cadence to keep UI responsive during live view.
+            self.after(PREVIEW_UPDATE_INTERVAL_MS, self._update_preview_frame)
         except Exception as e:
             self.status_var.set(f"Preview error: {e}")
             self.stop_preview()
@@ -2322,7 +2326,8 @@ How to calibrate (advanced):
     def toggle_motor_power(self):
         """Toggle the 24V motor power relay on/off"""
         self._debug_event("relay.toggle.request",
-                          f"motor_power_on={self.motor_power_on}") if self.motor_power_on:
+                          f"motor_power_on={self.motor_power_on}")
+        if self.motor_power_on:
             # Turn OFF
             if self.send_motor_command("POWER OFF"):
                 self.motor_power_on = False

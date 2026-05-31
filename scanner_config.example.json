@@ -14,12 +14,13 @@
   "camera": {
     "preview_resolution": "640x480",
     "capture_resolution": "4056x3040",
+    "preview_update_interval_ms": 300,
     "preview_color_swap": true,
     "anti_flicker_enabled": true,
     "flicker_frequency_hz": 60,
     "focus_lock_enabled": false,
     "focus_lens_position": 0.0,
-    "_comment": "preview_color_swap: true for BGR->RGB conversion (Pi Camera); set flicker_frequency_hz to 60 (US) or 50 (EU); focus lock applies only on AF-capable modules"
+    "_comment": "preview_update_interval_ms controls preview refresh cadence (300ms ~= 3.3Hz); preview_color_swap: true for BGR->RGB conversion (Pi Camera); set flicker_frequency_hz to 60 (US) or 50 (EU); focus lock applies only on AF-capable modules"
   },
 
   "capture": {
