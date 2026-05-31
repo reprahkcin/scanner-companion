@@ -171,6 +171,6 @@ The firmware retains its basic protocol (`ROTATE`, `MOVE`, `ZERO`, `GET_POS`). A
 
 - Contributing: see `CONTRIBUTING.md`
 - License: see `LICENSE`
-- For quick starts: see `docs/QUICKSTART.md` and `docs/hardware_setup.md`
+- For quick starts: see `docs/current/QUICKSTART.md` and `docs/current/hardware_setup.md`
 
 If you’re picking up non-code tasks, start by running the app without hardware to learn the UI, then shadow one full calibration + capture with the hardware to document the process end to end.

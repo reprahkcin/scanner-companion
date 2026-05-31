@@ -387,9 +387,9 @@ Current: `PosePrior="locked"` prevents RealityScan from adjusting poses.
 
 **Documentation**:
 
-- `.github/copilot-instructions.md` - Project context and conventions
-- `docs/FEATURES.md` - Feature documentation
-- `docs/hardware_setup.md` - Wiring and assembly guide
+- `copilot-instructions.md` - Project context and conventions
+- `docs/current/FEATURES.md` - Feature documentation
+- `docs/current/hardware_setup.md` - Wiring and assembly guide
 
 ---
 
