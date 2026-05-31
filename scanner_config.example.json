@@ -17,7 +17,9 @@
     "preview_color_swap": true,
     "anti_flicker_enabled": true,
     "flicker_frequency_hz": 60,
-    "_comment": "preview_color_swap: true for BGR->RGB conversion (Pi Camera); set flicker_frequency_hz to 60 (US) or 50 (EU)"
+    "focus_lock_enabled": false,
+    "focus_lens_position": 0.0,
+    "_comment": "preview_color_swap: true for BGR->RGB conversion (Pi Camera); set flicker_frequency_hz to 60 (US) or 50 (EU); focus lock applies only on AF-capable modules"
   },
 
   "capture": {
@@ -26,7 +28,8 @@
     "default_focus_slices": 5,
     "settle_delay": 1.0,
     "image_format": "JPG",
-    "_comment": "perspectives: number of rotational positions (72 = 5° steps for full 360°)"
+    "jpeg_quality": 100,
+    "_comment": "perspectives: number of rotational positions (72 = 5° steps for full 360°); prefer PNG/TIFF for stacking fidelity"
   },
 
   "xmp": {

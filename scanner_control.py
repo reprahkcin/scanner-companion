@@ -87,14 +87,19 @@ def load_scanner_config():
         "camera": {
             "preview_resolution": "640x480",
             "capture_resolution": "4056x3040",
-            "preview_color_swap": True
+            "preview_color_swap": True,
+            "anti_flicker_enabled": True,
+            "flicker_frequency_hz": 60,
+            "focus_lock_enabled": False,
+            "focus_lens_position": 0.0
         },
         "capture": {
             "output_dir": "~/Desktop/scanner_captures",
             "default_perspectives": 72,
             "default_focus_slices": 5,
             "settle_delay": 1.0,
-            "image_format": "JPG"
+            "image_format": "JPG",
+            "jpeg_quality": 100
         },
         "xmp": {
             "lens_to_object_mm": 250.0,
@@ -596,7 +601,10 @@ class ScannerGUI(tk.Tk):
         self.stacks_count = tk.IntVar(value=DEFAULT_STACKS)
         self.shots_per_stack = tk.IntVar(value=DEFAULT_SHOTS_PER_STACK)
         self.settle_delay = tk.DoubleVar(value=DEFAULT_SETTLE_DELAY)
-        self.image_format = tk.StringVar(value="JPG")
+        self.image_format = tk.StringVar(
+            value=str(SCANNER_CONFIG.get("capture", {}).get("image_format", "JPG")).upper())
+        self.jpeg_quality = tk.IntVar(
+            value=int(SCANNER_CONFIG.get("capture", {}).get("jpeg_quality", 100)))
         self.capture_preset_size = tk.StringVar(value="medium")
         self.capture_preset_quality = tk.StringVar(value="good")
         self.capture_preset_applied_var = tk.StringVar(value="Preset: Manual")
@@ -617,6 +625,10 @@ class ScannerGUI(tk.Tk):
             value=bool(SCANNER_CONFIG.get("camera", {}).get("anti_flicker_enabled", True)))
         self.flicker_frequency_hz = tk.StringVar(
             value=str(SCANNER_CONFIG.get("camera", {}).get("flicker_frequency_hz", 60)))
+        self.focus_lock_enable = tk.BooleanVar(
+            value=bool(SCANNER_CONFIG.get("camera", {}).get("focus_lock_enabled", False)))
+        self.focus_lens_position = tk.DoubleVar(
+            value=float(SCANNER_CONFIG.get("camera", {}).get("focus_lens_position", 0.0)))
         # Resolution settings
         self.preview_resolution = tk.StringVar(value="640x480")
         self.capture_resolution = tk.StringVar(value="4056x3040")
@@ -1641,6 +1653,24 @@ How to calibrate (advanced):
                                          values=["JPG", "PNG", "TIFF"], state="readonly", width=8)
         self.format_combo.grid(row=7, column=1, sticky="w", padx=(5, 0))
 
+        ttk.Label(self.capture_settings_frame, text="JPEG Quality:").grid(
+            row=8, column=0, sticky="w")
+        self.jpeg_quality_spinbox = ttk.Spinbox(
+            self.capture_settings_frame,
+            from_=90,
+            to=100,
+            textvariable=self.jpeg_quality,
+            width=10,
+        )
+        self.jpeg_quality_spinbox.grid(
+            row=8, column=1, sticky="w", padx=(5, 0))
+
+        ttk.Label(
+            self.capture_settings_frame,
+            text="For precision stacking, prefer PNG or TIFF to avoid JPEG artifacts.",
+            foreground="#666",
+        ).grid(row=9, column=0, columnspan=4, sticky="w", pady=(4, 0))
+
         # Update angle step label whenever perspectives value changes
         def _update_angle_step_label(*_):
             try:
@@ -1808,6 +1838,22 @@ How to calibrate (advanced):
                                     orient="horizontal", length=150)
         self.wb_b_scale.grid(row=4, column=0, sticky="w")
 
+        ttk.Checkbutton(middle_col, text="Lock Focus (if supported)",
+                        variable=self.focus_lock_enable).grid(row=5, column=0, sticky="w", pady=(10, 5))
+
+        focus_row = ttk.Frame(middle_col)
+        focus_row.grid(row=6, column=0, sticky="w")
+        ttk.Label(focus_row, text="Lens Pos:").pack(side="left")
+        self.focus_lens_spinbox = ttk.Spinbox(
+            focus_row,
+            from_=0.0,
+            to=32.0,
+            increment=0.05,
+            textvariable=self.focus_lens_position,
+            width=8,
+        )
+        self.focus_lens_spinbox.pack(side="left", padx=(5, 0))
+
         # === RIGHT COLUMN: Image Adjustments ===
         ttk.Label(right_col, text="Contrast:").grid(
             row=0, column=0, sticky="w", pady=(0, 5))
@@ -1832,6 +1878,22 @@ How to calibrate (advanced):
                                              command=self.apply_camera_settings)
         self.btn_apply_settings.grid(
             row=1, column=0, columnspan=3, pady=(15, 0))
+
+        self.btn_lock_consistency = ttk.Button(
+            self.camera_controls_frame,
+            text="Lock Exposure/WB/Focus From Preview",
+            command=self.lock_from_preview,
+        )
+        self.btn_lock_consistency.grid(
+            row=2, column=0, columnspan=3, pady=(8, 0))
+
+        self.btn_precision_preset = ttk.Button(
+            self.camera_controls_frame,
+            text="Apply Precision Stack Preset",
+            command=self.apply_precision_stack_preset,
+        )
+        self.btn_precision_preset.grid(
+            row=3, column=0, columnspan=3, pady=(8, 0))
 
         # Keep a live readout of brightness value
         def update_brightness_display(*args):
@@ -3637,6 +3699,10 @@ How to calibrate (advanced):
             # Apply camera settings
             self.apply_camera_settings()
 
+            if self.image_format.get().upper() == "JPG":
+                self.log_capture(
+                    "Warning: JPEG is lossy; use PNG/TIFF for maximum stacking fidelity.")
+
             # Create test filename
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             test_dir = os.path.join(self.output_dir.get(), "test_captures")
@@ -3770,6 +3836,7 @@ How to calibrate (advanced):
                 "angle_step_degrees": 360.0 / max(1, self.stacks_count.get()),
                 "settle_delay": self.settle_delay.get(),
                 "image_format": self.image_format.get(),
+                "jpeg_quality": int(self.jpeg_quality.get()),
                 "calibration_data": self.calibration_data,
                 "xmp_settings": {
                     "lens_to_object_mm": float(self.lens_to_object_mm.get()),
@@ -3800,6 +3867,10 @@ How to calibrate (advanced):
             # Apply camera settings
             self.after(0, self.apply_camera_settings)
             time.sleep(1)
+
+            if self.image_format.get().upper() == "JPG":
+                self.after(0, lambda: self.log_capture(
+                    "Warning: JPEG is lossy; use PNG/TIFF for maximum stacking fidelity."))
 
             # Pause preview updates during capture to reduce contention
             self.preview_update_active = False
@@ -4239,29 +4310,25 @@ How to calibrate (advanced):
         # Capture high-resolution image
         fmt = self.image_format.get().upper()
         with self.camera_lock:
-            if fmt == "JPG":
-                try:
-                    self.camera.switch_mode_and_capture_file(
-                        still_config, filepath)
-                finally:
-                    # Return to preview mode if active
-                    if self.preview_on:
-                        try:
-                            self.camera.switch_mode(self.preview_config)
-                        except Exception:
-                            pass
-            else:
-                try:
-                    array = self.camera.switch_mode_and_capture_array(
-                        still_config, "main")
-                finally:
-                    if self.preview_on:
-                        try:
-                            self.camera.switch_mode(self.preview_config)
-                        except Exception:
-                            pass
-                image = Image.fromarray(array)
-                image.save(filepath)
+            try:
+                array = self.camera.switch_mode_and_capture_array(
+                    still_config, "main")
+            finally:
+                if self.preview_on:
+                    try:
+                        self.camera.switch_mode(self.preview_config)
+                    except Exception:
+                        pass
+
+        image = Image.fromarray(array)
+        if fmt == "JPG":
+            quality = max(90, min(100, int(self.jpeg_quality.get())))
+            image.save(filepath, format="JPEG", quality=quality,
+                       subsampling=0, optimize=False)
+        elif fmt == "PNG":
+            image.save(filepath, format="PNG", compress_level=1)
+        else:
+            image.save(filepath, format="TIFF", compression="tiff_lzw")
 
     def log_capture(self, message):
         """Add message to capture log"""
@@ -4272,6 +4339,81 @@ How to calibrate (advanced):
     # =====================================================================
     # CAMERA SETTINGS METHODS
     # =====================================================================
+
+    def apply_precision_stack_preset(self):
+        """Apply consistency-first defaults for precision image stacks."""
+        # Prefer a lossless output path for downstream stacking/fusion.
+        self.image_format.set("PNG")
+        self.jpeg_quality.set(100)
+
+        # Keep image processing neutral to reduce shot-to-shot variability.
+        self.brightness.set(0.0)
+        self.contrast.set(1.0)
+        self.saturation.set(1.0)
+        self.sharpness.set(1.0)
+
+        # Keep anti-flicker active and preserve selected mains frequency.
+        self.anti_flicker_enable.set(True)
+        if self.flicker_frequency_hz.get() not in ("50", "60"):
+            self.flicker_frequency_hz.set("60")
+
+        # If camera is running, lock current stabilized preview values immediately.
+        if self.camera is not None and self.camera.started:
+            self.lock_from_preview()
+            self.log_capture(
+                "Precision preset applied: PNG + anti-flicker + locked exposure/WB/focus from preview.")
+            return
+
+        self.status_var.set(
+            "Precision preset applied. Start preview, then click 'Lock Exposure/WB/Focus From Preview'.")
+
+    def lock_from_preview(self):
+        """Lock exposure/WB/focus from current preview metadata for consistency."""
+        if self.camera is None or not self.camera.started:
+            self.status_var.set("Start preview before locking camera settings")
+            return
+
+        try:
+            with self.camera_lock:
+                metadata = self.camera.capture_metadata()
+        except Exception as e:
+            self.status_var.set(f"Could not read preview metadata: {e}")
+            return
+
+        updated = []
+
+        exposure = metadata.get("ExposureTime")
+        if exposure is not None:
+            self.shutter_speed.set(int(exposure))
+            self.ae_enable.set(False)
+            updated.append("exposure")
+
+        gain = metadata.get("AnalogueGain")
+        if gain is not None:
+            self.analogue_gain.set(float(gain))
+            self.iso_value.set("Auto")
+            updated.append("gain")
+
+        colour_gains = metadata.get("ColourGains")
+        if isinstance(colour_gains, (list, tuple)) and len(colour_gains) >= 2:
+            self.wb_red_gain.set(float(colour_gains[0]))
+            self.wb_blue_gain.set(float(colour_gains[1]))
+            self.awb_enable.set(False)
+            updated.append("white-balance")
+
+        lens_position = metadata.get("LensPosition")
+        if lens_position is not None:
+            self.focus_lens_position.set(float(lens_position))
+            self.focus_lock_enable.set(True)
+            updated.append("focus")
+
+        self.apply_camera_settings()
+        if updated:
+            self.status_var.set(
+                f"Locked from preview metadata: {', '.join(updated)}")
+        else:
+            self.status_var.set(
+                "No lockable metadata found; check camera capabilities")
 
     def apply_camera_settings(self):
         """Apply camera settings"""
@@ -4353,6 +4495,14 @@ How to calibrate (advanced):
                 controls["AwbEnable"] = False
                 controls["ColourGains"] = (
                     float(self.wb_red_gain.get()), float(self.wb_blue_gain.get()))
+
+            # Focus lock (best effort for cameras exposing AF/lens controls)
+            if self.focus_lock_enable.get():
+                if "AfMode" in supported_controls:
+                    controls["AfMode"] = 0  # Manual
+                if "LensPosition" in supported_controls:
+                    controls["LensPosition"] = float(
+                        self.focus_lens_position.get())
 
             # Image processing
             if abs(self.contrast.get() - 1.0) > 0.01:
