@@ -120,7 +120,6 @@ void stepMotorSimple(int stepPin, int dirPin, bool dirHigh, long steps,
     *position += dirHigh ? (1.0f / stepsPerUnit) : -(1.0f / stepsPerUnit);
   }
 }
-}
 
 // Legacy stepMotor for Motor 2 (camera rail) - fast, constant speed
 void stepMotor(int stepPin, int dirPin, bool dirHigh, long steps)
