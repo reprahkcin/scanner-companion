@@ -1,0 +1,16 @@
+/usr/share/arduino/hardware/arduino/avr/cores/arduino/WString.cpp:29:47: error: ‘DECIMAL_DIG’ was not declared in this scope
+ size_t const String::FLT_MAX_DECIMAL_PLACES = DECIMAL_DIG;
+                                               ^
+/usr/share/arduino/hardware/arduino/avr/cores/arduino/WString.cpp:30:47: error: ‘DECIMAL_DIG’ was not declared in this scope
+ size_t const String::DBL_MAX_DECIMAL_PLACES = DECIMAL_DIG;
+                                               ^
+/usr/share/arduino/hardware/arduino/avr/cores/arduino/WString.cpp: In constructor ‘String::String(float, unsigned char)’:
+/usr/share/arduino/hardware/arduino/avr/cores/arduino/WString.cpp:120:25: error: size of array ‘buf’ is not an integral constant-expression
+  char buf[FLOAT_BUF_SIZE];
+                         ^
+/usr/share/arduino/hardware/arduino/avr/cores/arduino/WString.cpp: In constructor ‘String::String(double, unsigned char)’:
+/usr/share/arduino/hardware/arduino/avr/cores/arduino/WString.cpp:129:26: error: size of array ‘buf’ is not an integral constant-expression
+  char buf[DOUBLE_BUF_SIZE];
+                          ^
+exit status 1
+Error compiling for board Arduino UNO.
