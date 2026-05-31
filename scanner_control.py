@@ -949,13 +949,28 @@ class ScannerGUI(tk.Tk):
             btn_frame3, text="▲ Up", command=self.motor3_up)
         self.btn_m3_up.grid(row=0, column=2, padx=(5, 0))
 
-        # === RIGHT COLUMN: Setup Instructions ===
+        # === RIGHT COLUMN: Setup Instructions / Testing Mode ===
 
-        # Hardware Setup Instructions
-        self.setup_instructions_frame = ttk.LabelFrame(
-            right_column, text="Hardware Setup Instructions", padding=10)
-        self.setup_instructions_frame.pack(
+        # Mode switcher: User Manual vs Testing Mode
+        self.manual_panel_mode = tk.StringVar(value="manual")
+        mode_switch_frame = ttk.Frame(right_column)
+        mode_switch_frame.pack(fill="x", pady=(0, 5))
+        ttk.Label(mode_switch_frame, text="Right Panel Mode:").pack(side="left")
+        ttk.Radiobutton(mode_switch_frame, text="User Manual",
+                        variable=self.manual_panel_mode, value="manual",
+                        command=self._update_manual_panel_mode).pack(side="left", padx=(8, 4))
+        ttk.Radiobutton(mode_switch_frame, text="Testing Mode",
+                        variable=self.manual_panel_mode, value="testing",
+                        command=self._update_manual_panel_mode).pack(side="left")
+
+        # Container holds either the user manual or the testing checklist
+        self.manual_panel_container = ttk.Frame(right_column)
+        self.manual_panel_container.pack(
             fill="both", expand=True, pady=(0, 10))
+
+        # Hardware Setup Instructions (User Manual view)
+        self.setup_instructions_frame = ttk.LabelFrame(
+            self.manual_panel_container, text="Hardware Setup Instructions", padding=10)
 
         setup_instructions = """Initial Hardware Setup:
 
@@ -1010,6 +1025,12 @@ TIPS:
         # Insert instructions and make read-only
         self.setup_instructions_text.insert("1.0", setup_instructions)
         self.setup_instructions_text.config(state="disabled")
+
+        # Build Testing Mode view inside the same container
+        self._build_testing_mode_view(self.manual_panel_container)
+
+        # Activate default mode (user manual)
+        self._update_manual_panel_mode()
 
         # Status and Tips
         self.manual_status_frame = ttk.LabelFrame(
@@ -2109,6 +2130,7 @@ How to calibrate (advanced):
             self.status_var.set("Camera preview started")
             self._update_manual_status()
             self._debug_event("preview.start.success")
+            self._auto_check_test_step(2)
             self.after(200, self._update_preview_frame)
         except Exception as e:
             self.status_var.set(f"Camera error: {e}")
@@ -2134,6 +2156,9 @@ How to calibrate (advanced):
         self.status_var.set("Camera preview stopped")
         self._update_manual_status()
         self._debug_event("preview.stop.success")
+        # Only credit 'Stop preview' step if 'Start preview' was already observed.
+        if hasattr(self, "testing_step_vars") and self.testing_step_vars[2].get():
+            self._auto_check_test_step(9)
 
     def _update_preview_frame(self):
         """Update camera preview in both manual and calibration tabs"""
@@ -2280,6 +2305,7 @@ How to calibrate (advanced):
                 self.btn_motor_power.config(text="Turn ON")
                 self.status_var.set("Motor power OFF")
                 self._debug_event("relay.toggle.success", "state=OFF")
+                self._auto_check_test_step(10)
             else:
                 self.status_var.set("Failed to turn off motor power")
                 self._debug_event("relay.toggle.error", "target=OFF")
@@ -2291,6 +2317,7 @@ How to calibrate (advanced):
                 self.btn_motor_power.config(text="Turn OFF")
                 self.status_var.set("Motor power ON")
                 self._debug_event("relay.toggle.success", "state=ON")
+                self._auto_check_test_step(1)
             else:
                 self.status_var.set("Failed to turn on motor power")
                 self._debug_event("relay.toggle.error", "target=ON")
@@ -2306,6 +2333,7 @@ How to calibrate (advanced):
                 self.motor1_position_deg -= step
                 self.motor1_pos_var.set(f"{self.motor1_position_deg:.1f}°")
                 self.status_var.set(f"Motor 1: Rotated {step}° CCW")
+                self._auto_check_test_step(3)
             else:
                 self.status_var.set("Failed to rotate motor 1")
         except ValueError:
@@ -2322,6 +2350,7 @@ How to calibrate (advanced):
                 self.motor1_position_deg += step
                 self.motor1_pos_var.set(f"{self.motor1_position_deg:.1f}°")
                 self.status_var.set(f"Motor 1: Rotated {step}° CW")
+                self._auto_check_test_step(3)
             else:
                 self.status_var.set("Failed to rotate motor 1")
         except ValueError:
@@ -2332,6 +2361,7 @@ How to calibrate (advanced):
             self.motor1_position_deg = 0.0
             self.motor1_pos_var.set("0.0°")
             self.status_var.set("Motor 1: Position zeroed")
+            self._auto_check_test_step(4)
         else:
             self.status_var.set("Failed to zero motor 1")
 
@@ -2344,6 +2374,7 @@ How to calibrate (advanced):
                 self.motor2_position_mm += step
                 self.motor2_pos_var.set(f"{self.motor2_position_mm:.1f}mm")
                 self.status_var.set(f"Motor 2: Moved {step}mm forward")
+                self._auto_check_test_step(5)
             else:
                 self.status_var.set("Failed to move motor 2")
         except ValueError:
@@ -2358,6 +2389,7 @@ How to calibrate (advanced):
                 self.motor2_position_mm -= step
                 self.motor2_pos_var.set(f"{self.motor2_position_mm:.1f}mm")
                 self.status_var.set(f"Motor 2: Moved {step}mm backward")
+                self._auto_check_test_step(5)
             else:
                 self.status_var.set("Failed to move motor 2")
         except ValueError:
@@ -2368,6 +2400,7 @@ How to calibrate (advanced):
             self.motor2_position_mm = 0.0
             self.motor2_pos_var.set("0.0mm")
             self.status_var.set("Motor 2: Position zeroed")
+            self._auto_check_test_step(6)
         else:
             self.status_var.set("Failed to zero motor 2")
 
@@ -2381,6 +2414,7 @@ How to calibrate (advanced):
                 self.motor3_position_deg += step
                 self.motor3_pos_var.set(f"{self.motor3_position_deg:.1f}°")
                 self.status_var.set(f"Motor 3: Tilted {step}° up")
+                self._auto_check_test_step(7)
             else:
                 self.status_var.set("Failed to tilt motor 3")
         except ValueError:
@@ -2396,6 +2430,7 @@ How to calibrate (advanced):
                 self.motor3_position_deg -= step
                 self.motor3_pos_var.set(f"{self.motor3_position_deg:.1f}°")
                 self.status_var.set(f"Motor 3: Tilted {step}° down")
+                self._auto_check_test_step(7)
             else:
                 self.status_var.set("Failed to tilt motor 3")
         except ValueError:
@@ -2407,6 +2442,7 @@ How to calibrate (advanced):
             self.motor3_position_deg = 0.0
             self.motor3_pos_var.set("0.0°")
             self.status_var.set("Motor 3: Position zeroed")
+            self._auto_check_test_step(8)
         else:
             self.status_var.set("Failed to zero motor 3")
 
@@ -2483,6 +2519,7 @@ How to calibrate (advanced):
             # Update Arduino status
             if hasattr(self, 'ser') and self.ser is not None:
                 self.arduino_status_var.set("Connected")
+                self._auto_check_test_step(0)
             else:
                 self.arduino_status_var.set("Not Connected")
 
@@ -2498,6 +2535,143 @@ How to calibrate (advanced):
             pass
         except Exception:
             pass
+
+    # ──────────────────────────────────────────────────────────────────
+    # Manual tab right-panel mode (User Manual / Testing Mode)
+    # ──────────────────────────────────────────────────────────────────
+
+    MANUAL_TEST_STEPS = [
+        ("Connect Arduino via USB and confirm 'Connected' in status display.",
+         "Serial port should auto-detect; status bar must show no error."),
+        ("Turn ON motor power relay and verify motors are energized.",
+         "Click 'Turn ON' under motor power; listen for relay click."),
+        ("Start camera preview and verify a live image appears.",
+         "Click 'Start Preview' in any tab; image should appear within ~1s."),
+        ("Jog Motor 1 (Rotation) ±5° and verify position counter updates.",
+         "Use CW and CCW buttons; position label should update both directions."),
+        ("Home Motor 1 and confirm position resets to 0.0°.",
+         "Click '⌂ Home' under Motor 1; counter should read 0.0°."),
+        ("Jog Motor 2 (Linear) ±1mm and verify direction matches expectation.",
+         "Use ▲ Up / ▼ Down; if reversed, adjust DIR_REVERSE_M2 in firmware."),
+        ("Home Motor 2 and confirm position resets to 0.0mm.",
+         "Click '⌂ Home' under Motor 2."),
+        ("Tilt Motor 3 ±5° and verify smooth motion across travel range.",
+         "Use ▲ Up / ▼ Down; check for binding or skipped steps."),
+        ("Home Motor 3 and confirm position resets to 0.0°.",
+         "Click '⌂ Home' under Motor 3."),
+        ("Stop preview and confirm camera releases cleanly (button reverts).",
+         "Click 'Stop Preview'; preview frame should clear without errors."),
+        ("Turn OFF motor power relay and confirm motors release.",
+         "Click 'Turn OFF'; motors should de-energize."),
+        ("Open Capture & Camera tab and click 'Apply Precision Stack Preset'.",
+         "Preset should set PNG format, neutral processing, and anti-flicker on."),
+        ("Run a single Test Capture and confirm file saves to output dir.",
+         "Check the test_captures folder for the new image."),
+    ]
+
+    def _build_testing_mode_view(self, parent):
+        """Build the step-by-step manual testing checklist view."""
+        self.testing_mode_frame = ttk.LabelFrame(
+            parent, text="End-to-End Manual Test", padding=10)
+
+        # Progress header
+        header = ttk.Frame(self.testing_mode_frame)
+        header.pack(fill="x", pady=(0, 6))
+        self.testing_progress_var = tk.StringVar(value="0 / 0 complete")
+        ttk.Label(header, textvariable=self.testing_progress_var,
+                  font=("TkDefaultFont", 10, "bold")).pack(side="left")
+        ttk.Button(header, text="Reset",
+                   command=self._reset_testing_checklist).pack(side="right")
+
+        # Scrollable checklist area
+        canvas_frame = ttk.Frame(self.testing_mode_frame)
+        canvas_frame.pack(fill="both", expand=True)
+        canvas = tk.Canvas(canvas_frame, highlightthickness=0)
+        scroll = ttk.Scrollbar(canvas_frame, orient="vertical",
+                               command=canvas.yview)
+        canvas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        inner = ttk.Frame(canvas)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_inner_configure(_event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        inner.bind("<Configure>", _on_inner_configure)
+
+        def _on_canvas_configure(event):
+            canvas.itemconfigure(inner_id, width=event.width)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        # Build a check row per step
+        self.testing_step_vars = []
+        for i, (title, hint) in enumerate(self.MANUAL_TEST_STEPS, start=1):
+            var = tk.BooleanVar(value=False)
+            self.testing_step_vars.append(var)
+
+            row = ttk.Frame(inner)
+            row.pack(fill="x", pady=(0, 6))
+            cb = ttk.Checkbutton(
+                row, variable=var,
+                text=f"{i}. {title}",
+                command=self._update_testing_progress,
+            )
+            cb.pack(anchor="w")
+            ttk.Label(row, text=f"    {hint}",
+                      foreground="#666",
+                      font=("TkDefaultFont", 8),
+                      wraplength=420, justify="left").pack(anchor="w")
+
+        self._update_testing_progress()
+
+    def _update_manual_panel_mode(self):
+        """Switch the manual tab right panel between User Manual and Testing Mode."""
+        mode = self.manual_panel_mode.get()
+        # Hide both first
+        try:
+            self.setup_instructions_frame.pack_forget()
+        except Exception:
+            pass
+        try:
+            self.testing_mode_frame.pack_forget()
+        except Exception:
+            pass
+
+        if mode == "testing" and hasattr(self, "testing_mode_frame"):
+            self.testing_mode_frame.pack(fill="both", expand=True)
+        else:
+            self.setup_instructions_frame.pack(fill="both", expand=True)
+
+    def _update_testing_progress(self):
+        """Update progress label for testing checklist."""
+        if not hasattr(self, "testing_step_vars"):
+            return
+        done = sum(1 for v in self.testing_step_vars if v.get())
+        total = len(self.testing_step_vars)
+        self.testing_progress_var.set(f"{done} / {total} complete")
+
+    def _reset_testing_checklist(self):
+        """Reset all testing checklist items."""
+        if not hasattr(self, "testing_step_vars"):
+            return
+        for v in self.testing_step_vars:
+            v.set(False)
+        self._update_testing_progress()
+
+    def _auto_check_test_step(self, index):
+        """Mark a testing checklist step complete in response to an observed event.
+        Only sets True; never clears a user's check. Safe to call before the
+        checklist has been built.
+        """
+        if not hasattr(self, "testing_step_vars"):
+            return
+        if index < 0 or index >= len(self.testing_step_vars):
+            return
+        var = self.testing_step_vars[index]
+        if not var.get():
+            var.set(True)
+            self._update_testing_progress()
 
     def on_close(self):
         # Stop focus maintenance
@@ -3716,6 +3890,7 @@ How to calibrate (advanced):
 
             self.log_capture(f"Test capture saved: {filename}")
             messagebox.showinfo("Test Capture", f"Image saved to:\n{filepath}")
+            self._auto_check_test_step(12)
 
         except Exception as e:
             messagebox.showerror("Error", f"Test capture failed: {e}")
@@ -4362,10 +4537,12 @@ How to calibrate (advanced):
             self.lock_from_preview()
             self.log_capture(
                 "Precision preset applied: PNG + anti-flicker + locked exposure/WB/focus from preview.")
+            self._auto_check_test_step(11)
             return
 
         self.status_var.set(
             "Precision preset applied. Start preview, then click 'Lock Exposure/WB/Focus From Preview'.")
+        self._auto_check_test_step(11)
 
     def lock_from_preview(self):
         """Lock exposure/WB/focus from current preview metadata for consistency."""
