@@ -613,6 +613,10 @@ class ScannerGUI(tk.Tk):
         # === Camera settings ===
         self.shutter_speed = tk.IntVar(value=0)  # 0 = auto
         self.brightness = tk.DoubleVar(value=0.0)
+        self.anti_flicker_enable = tk.BooleanVar(
+            value=bool(SCANNER_CONFIG.get("camera", {}).get("anti_flicker_enabled", True)))
+        self.flicker_frequency_hz = tk.StringVar(
+            value=str(SCANNER_CONFIG.get("camera", {}).get("flicker_frequency_hz", 60)))
         # Resolution settings
         self.preview_resolution = tk.StringVar(value="640x480")
         self.capture_resolution = tk.StringVar(value="4056x3040")
@@ -1770,6 +1774,23 @@ How to calibrate (advanced):
         self.brightness_value_var = tk.StringVar()
         ttk.Label(left_col, textvariable=self.brightness_value_var,
                   foreground="#666").grid(row=12, column=0, sticky="w")
+
+        ttk.Checkbutton(left_col, text="Anti-Flicker", variable=self.anti_flicker_enable).grid(
+            row=13, column=0, sticky="w", pady=(8, 5))
+
+        flicker_row = ttk.Frame(left_col)
+        flicker_row.grid(row=14, column=0, sticky="w")
+        ttk.Label(flicker_row, text="Mains:").pack(side="left")
+        self.flicker_hz_combo = ttk.Combobox(
+            flicker_row,
+            textvariable=self.flicker_frequency_hz,
+            values=["50", "60"],
+            state="readonly",
+            width=5,
+        )
+        self.flicker_hz_combo.pack(side="left", padx=(5, 0))
+        ttk.Label(flicker_row, text="Hz", foreground="#666").pack(
+            side="left", padx=(4, 0))
 
         # === MIDDLE COLUMN: White Balance ===
         ttk.Checkbutton(middle_col, text="Auto White Balance", variable=self.awb_enable).grid(
@@ -4259,14 +4280,52 @@ How to calibrate (advanced):
 
         try:
             controls = {}
+            optional_controls = set()
+
+            # Determine mains frequency for anti-flicker behavior.
+            try:
+                mains_hz = int(self.flicker_frequency_hz.get())
+            except Exception:
+                mains_hz = 60
+            mains_hz = 60 if mains_hz not in (50, 60) else mains_hz
+            half_cycle_us = int(round(1_000_000 / (2.0 * mains_hz)))
+
+            # Query supported controls when available to avoid unsupported-key failures.
+            supported_controls = set()
+            try:
+                cam_ctrls = getattr(self.camera, "camera_controls", None)
+                if isinstance(cam_ctrls, dict):
+                    supported_controls = set(cam_ctrls.keys())
+            except Exception:
+                supported_controls = set()
 
             # Shutter speed
             if self.shutter_speed.get() > 0:
-                controls["ExposureTime"] = self.shutter_speed.get()
+                exposure_us = int(self.shutter_speed.get())
+                # For manual exposure, quantize to mains half-cycle to reduce LED banding.
+                if self.anti_flicker_enable.get() and half_cycle_us > 0:
+                    exposure_us = max(
+                        half_cycle_us,
+                        int(round(exposure_us / float(half_cycle_us))) *
+                        half_cycle_us,
+                    )
+                    # Keep UI in sync with the effective exposure that will be applied.
+                    self.shutter_speed.set(exposure_us)
+                controls["ExposureTime"] = exposure_us
 
             # AE and ISO / Analogue Gain
             if self.ae_enable.get():
                 controls["AeEnable"] = True
+                # For auto exposure, request camera-side anti-flicker if supported.
+                if self.anti_flicker_enable.get():
+                    if "AeFlickerPeriod" in supported_controls:
+                        controls["AeFlickerPeriod"] = int(
+                            round(1_000_000 / mains_hz))
+                        optional_controls.add("AeFlickerPeriod")
+                    if "AeFlickerMode" in supported_controls:
+                        # 1 is commonly "FlickerManual" in libcamera enum mappings.
+                        controls["AeFlickerMode"] = 1
+                        optional_controls.add("AeFlickerMode")
                 # EV compensation only applies when AE is enabled
                 if abs(self.ev_compensation.get()) > 0.01:
                     controls["ExposureValue"] = float(
@@ -4305,7 +4364,17 @@ How to calibrate (advanced):
 
             if controls:
                 with self.camera_lock:
-                    self.camera.set_controls(controls)
+                    try:
+                        self.camera.set_controls(controls)
+                    except Exception:
+                        # Some cameras expose no flicker controls; retry without optional keys.
+                        fallback_controls = {
+                            k: v for k, v in controls.items() if k not in optional_controls
+                        }
+                        if fallback_controls and fallback_controls != controls:
+                            self.camera.set_controls(fallback_controls)
+                        else:
+                            raise
                 self.status_var.set("Camera settings applied")
 
             # If preview is running and resolution changed, restart preview with new config
