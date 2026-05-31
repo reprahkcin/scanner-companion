@@ -28,8 +28,8 @@ const unsigned int PULSE_DELAY_M3_US = 500; // Tilt - geared (5:1), run fast; no
 // See TB6600_ENABLE_LOGIC.md for full explanation
 const bool ENABLE_ACTIVE_HIGH = true;
 
-// Relay logic: empirically active-HIGH on this module (HIGH = energized = power ON)
-const bool RELAY_ACTIVE_LOW = false;
+// Relay logic: LOW-trigger relay (LOW = relay energized = power ON)
+const bool RELAY_ACTIVE_LOW = true;
 bool motorPowerOn = false; // Track power state
 
 // ── Calibration constants ────────────────────────────────────────────────────
