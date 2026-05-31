@@ -778,6 +778,9 @@ class ScannerGUI(tk.Tk):
         # Load existing notes
         self._load_notes()
 
+        # Reserve preview space up front so enabling preview does not resize/reflow the UI.
+        self._apply_preview_placeholder()
+
         # Status Bar (will be packed later in _layout_gui)
         self.status_bar = ttk.Label(
             self, textvariable=self.status_var, relief="sunken", anchor="w")
@@ -1936,17 +1939,39 @@ How to calibrate (advanced):
         if hasattr(self, 'camera_preview_btn'):
             self.camera_preview_btn.config(text=label)
 
-    def _clear_preview_images(self):
-        """Clear preview frames from all labels when preview stops."""
-        if hasattr(self, 'preview_label'):
-            self.preview_label.config(image='')
-        if hasattr(self, 'cal_preview_label'):
-            self.cal_preview_label.config(image='')
-        if hasattr(self, 'camera_preview_label'):
-            self.camera_preview_label.config(image='')
-        if hasattr(self, 'guided_preview_label'):
-            self.guided_preview_label.config(image='')
-        self.preview_image = None
+    def _current_preview_size(self):
+        """Get preview display size from current selection, with safe fallback."""
+        try:
+            w, h = map(int, self.preview_resolution.get().lower().split("x"))
+            return (w, h)
+        except Exception:
+            return CAMERA_RESOLUTION
+
+    def _ensure_preview_placeholder(self, size=None):
+        """Create/recreate a black placeholder image used to reserve preview geometry."""
+        if size is None:
+            size = self._current_preview_size()
+        w, h = size
+        needs_new = (
+            not hasattr(self, 'preview_placeholder_image')
+            or not hasattr(self, '_preview_placeholder_size')
+            or self._preview_placeholder_size != (w, h)
+        )
+        if needs_new:
+            placeholder = tk.PhotoImage(width=w, height=h)
+            # Fill background so placeholder is visibly stable and not transparent.
+            placeholder.put("#000000", to=(0, 0, w, h))
+            self.preview_placeholder_image = placeholder
+            self._preview_placeholder_size = (w, h)
+
+    def _apply_preview_placeholder(self, size=None):
+        """Apply placeholder image to all preview labels to keep layout stable."""
+        self._ensure_preview_placeholder(size=size)
+        for attr in ('preview_label', 'cal_preview_label', 'camera_preview_label', 'guided_preview_label'):
+            if hasattr(self, attr):
+                lbl = getattr(self, attr)
+                lbl.config(image=self.preview_placeholder_image)
+        self.preview_image = self.preview_placeholder_image
 
     def start_preview(self):
         if self.preview_on:
@@ -1962,6 +1987,10 @@ How to calibrate (advanced):
                     int, self.preview_resolution.get().lower().split("x"))
             except Exception:
                 w, h = CAMERA_RESOLUTION
+
+            # Ensure geometry is already reserved at selected size before live frames arrive.
+            self._apply_preview_placeholder(size=(w, h))
+
             self.preview_config = self.camera.create_preview_configuration(
                 main={"size": (w, h), "format": "RGB888"}
             )
@@ -1993,7 +2022,7 @@ How to calibrate (advanced):
             except Exception:
                 pass
             self.camera = None
-        self._clear_preview_images()
+        self._apply_preview_placeholder()
         self._set_preview_button_labels(False)
         self.status_var.set("Camera preview stopped")
         self._update_manual_status()
