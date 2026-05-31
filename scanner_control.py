@@ -1884,32 +1884,75 @@ How to calibrate (advanced):
 
     def toggle_preview(self):
         """Toggle camera preview for both manual and calibration tabs"""
+        self._debug_event("preview.toggle.request",
+                          f"preview_on={self.preview_on}")
         if not PICAMERA2_OK:
             self.status_var.set("picamera2 is not installed.")
+            self._debug_event("preview.toggle.blocked",
+                              "reason=picamera2-missing")
             return
         if not PIL_OK:
             self.status_var.set("PIL (pillow) is not installed.")
+            self._debug_event("preview.toggle.blocked",
+                              "reason=pillow-missing")
             return
 
         if not self.preview_on:
             self.start_preview()
-            self.btn_preview.config(text="Stop Preview")
-            if hasattr(self, 'cal_btn_preview'):
-                self.cal_btn_preview.config(text="Stop Preview")
-            if hasattr(self, 'camera_preview_btn'):
-                self.camera_preview_btn.config(text="Stop Preview")
         else:
             self.stop_preview()
-            self.btn_preview.config(text="Start Preview")
-            if hasattr(self, 'cal_btn_preview'):
-                self.cal_btn_preview.config(text="Start Preview")
-            if hasattr(self, 'camera_preview_btn'):
-                self.camera_preview_btn.config(text="Start Preview")
+
+        self._debug_event("preview.toggle.done",
+                          f"preview_on={self.preview_on}")
 
         # Update manual tab status
         self._update_manual_status()
 
+    def _debug_event(self, event_name, details=""):
+        """Emit lightweight timestamped debug events for UI/runtime tracing."""
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        msg = f"[EVENT {ts}] {event_name}"
+        if details:
+            msg = f"{msg} | {details}"
+
+        # Console trace (always available)
+        print(msg)
+
+        # Optional in-app trace in capture log when widget exists
+        if hasattr(self, 'capture_log_text'):
+            try:
+                self.capture_log_text.insert(tk.END, f"{msg}\n")
+                self.capture_log_text.see(tk.END)
+            except Exception:
+                pass
+
+    def _set_preview_button_labels(self, running):
+        """Keep preview button labels synchronized across all tabs."""
+        label = "Stop Preview" if running else "Start Preview"
+        if hasattr(self, 'btn_preview'):
+            self.btn_preview.config(text=label)
+        if hasattr(self, 'cal_btn_preview'):
+            self.cal_btn_preview.config(text=label)
+        if hasattr(self, 'camera_preview_btn'):
+            self.camera_preview_btn.config(text=label)
+
+    def _clear_preview_images(self):
+        """Clear preview frames from all labels when preview stops."""
+        if hasattr(self, 'preview_label'):
+            self.preview_label.config(image='')
+        if hasattr(self, 'cal_preview_label'):
+            self.cal_preview_label.config(image='')
+        if hasattr(self, 'camera_preview_label'):
+            self.camera_preview_label.config(image='')
+        if hasattr(self, 'guided_preview_label'):
+            self.guided_preview_label.config(image='')
+        self.preview_image = None
+
     def start_preview(self):
+        if self.preview_on:
+            self._debug_event("preview.start.skipped", "already-running")
+            return
+        self._debug_event("preview.start.begin")
         try:
             if self.camera is None:
                 self.camera = Picamera2()
@@ -1926,15 +1969,35 @@ How to calibrate (advanced):
             self.camera.start()
             self.preview_on = True
             self.preview_update_active = True
+            self._set_preview_button_labels(True)
+            self.status_var.set("Camera preview started")
+            self._update_manual_status()
+            self._debug_event("preview.start.success")
             self.after(200, self._update_preview_frame)
         except Exception as e:
             self.status_var.set(f"Camera error: {e}")
+            self.preview_on = False
+            self.preview_update_active = False
+            self._set_preview_button_labels(False)
+            self._debug_event("preview.start.error", str(e))
 
     def stop_preview(self):
+        self._debug_event("preview.stop.begin")
         self.preview_update_active = False
-        if self.camera is not None:
-            self.camera.stop()
         self.preview_on = False
+        if self.camera is not None:
+            try:
+                with self.camera_lock:
+                    self.camera.stop()
+                    self.camera.close()
+            except Exception:
+                pass
+            self.camera = None
+        self._clear_preview_images()
+        self._set_preview_button_labels(False)
+        self.status_var.set("Camera preview stopped")
+        self._update_manual_status()
+        self._debug_event("preview.stop.success")
 
     def _update_preview_frame(self):
         """Update camera preview in both manual and calibration tabs"""
@@ -2070,6 +2133,8 @@ How to calibrate (advanced):
 
     def toggle_motor_power(self):
         """Toggle the 24V motor power relay on/off"""
+        self._debug_event("relay.toggle.request",
+                          f"motor_power_on={self.motor_power_on}")
         if self.motor_power_on:
             # Turn OFF
             if self.send_motor_command("POWER OFF"):
@@ -2077,8 +2142,10 @@ How to calibrate (advanced):
                 self.motor_power_status_var.set("OFF")
                 self.btn_motor_power.config(text="Turn ON")
                 self.status_var.set("Motor power OFF")
+                self._debug_event("relay.toggle.success", "state=OFF")
             else:
                 self.status_var.set("Failed to turn off motor power")
+                self._debug_event("relay.toggle.error", "target=OFF")
         else:
             # Turn ON
             if self.send_motor_command("POWER ON"):
@@ -2086,8 +2153,10 @@ How to calibrate (advanced):
                 self.motor_power_status_var.set("ON")
                 self.btn_motor_power.config(text="Turn OFF")
                 self.status_var.set("Motor power ON")
+                self._debug_event("relay.toggle.success", "state=ON")
             else:
                 self.status_var.set("Failed to turn on motor power")
+                self._debug_event("relay.toggle.error", "target=ON")
 
     def motor1_ccw(self):
         try:
