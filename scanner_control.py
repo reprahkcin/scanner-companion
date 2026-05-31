@@ -902,7 +902,7 @@ class ScannerGUI(tk.Tk):
         btn_frame2.grid(row=2, column=0, columnspan=3, pady=(10, 0))
 
         self.btn_m2_down = ttk.Button(
-            btn_frame2, text="▼ Down", command=self.motor2_down)
+            btn_frame2, text="◀ Backward", command=self.motor2_down)
         self.btn_m2_down.grid(row=0, column=0, padx=(0, 5))
 
         self.btn_m2_home = ttk.Button(
@@ -910,7 +910,7 @@ class ScannerGUI(tk.Tk):
         self.btn_m2_home.grid(row=0, column=1, padx=5)
 
         self.btn_m2_up = ttk.Button(
-            btn_frame2, text="▲ Up", command=self.motor2_up)
+            btn_frame2, text="Forward ▶", command=self.motor2_up)
         self.btn_m2_up.grid(row=0, column=2, padx=(5, 0))
 
         # --- Motor 3 Frame (Vertical Tilt) ---
