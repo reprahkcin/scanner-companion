@@ -6,6 +6,17 @@ This is a 3D photogrammetry scanner control system that generates XMP sidecar fi
 
 ## Critical XMP Configuration (DO NOT CHANGE)
 
+### Critical Rules (Single Source of Truth)
+
+1. Treat the `VERIFIED_*` constants and validated XMP layout as locked defaults. If a user requests changing any `VERIFIED_*` constant, explicitly confirm the change is intentional and require the user to state they have empirically validated the new value before proceeding.
+2. Use `temp/` for all temporary scripts and experiments. Do not create test scripts in repository root.
+3. Use `temp/final_pose_sets/start0_ccw/stack_00.xmp` as the gold standard reference. If this reference is missing or inaccessible, stop and ask the user to provide it instead of guessing the format.
+4. Keep XMP formatting exact: one xcr attribute per line, `xcr:Rotation` and `xcr:Position` as child elements, and no line breaks inside attribute values.
+5. Serialize the XML attribute name exactly as `DistortionCoeficients` (intentional RealityCapture spelling), even though Python identifiers may use correctly spelled names like `VERIFIED_DISTORTION_COEFFS`.
+6. `PosePrior="locked"` is required in exported XMP. RealityScan UI options shown after import do not imply that `PosePrior="draft"` or `PosePrior="initial"` are safe export values.
+7. If a `temp/` Python script fails, report the error and failure context, then fix and retry in `temp/` before considering any edits to `scanner_control.py`.
+8. If RealityScan import fails, do not update `scanner_control.py`. Report the failure mode (for example: missing dropdowns or rejected file), then compare generated XMP byte-by-byte against the reference before attempting another change.
+
 ### Verified Working XMP Format
 
 The following XMP settings have been empirically validated and MUST be used exactly as specified:
@@ -59,7 +70,7 @@ VERIFIED_PRINCIPAL_POINT_V = 0.0
 - **Rotation format**: 9 space-separated floats formatted to 10 decimal places
 - **Position format**: 3 space-separated floats formatted to 6 decimal places
 - **NO line breaks within attribute values** (e.g., no breaks in `xcr:CalibrationPrior="exact"`)
-- **Spelling**: Use `DistortionCoeficients` (NOT "Coefficients") per RealityCapture spec
+- **Spelling**: Use `DistortionCoeficients` (NOT "Coefficients") per RealityCapture spec; preserve this exact XML spelling during serialization
 
 ### Camera Pose Convention (Validated)
 
@@ -83,13 +94,15 @@ The working pose convention uses:
 
 - **PosePrior="locked"** enables the "Relative pose" dropdown in RealityScan
   - Dropdown shows: Unknown, Draft, Exact
-  - User can manually select "Draft" after import
+  - User can manually select "Draft" after import (UI state)
 - **CalibrationPrior="exact"** enables the "Prior" calibration dropdown
   - Shows: Approximate, Fixed
 
+Note: UI dropdown options are post-import controls and do not validate alternate exported XMP `PosePrior` values.
+
 ### Known Issues
 
-- Setting `PosePrior="draft"` or `PosePrior="initial"` breaks RealityScan import
+- Setting `PosePrior="draft"` or `PosePrior="initial"` in exported XMP breaks RealityScan import
 - Always use `PosePrior="locked"` and let user manually adjust in UI if needed
 - Line breaks within XML attribute values cause import failures
 
@@ -112,8 +125,10 @@ The working pose convention uses:
 ### Important Notes
 
 - Working reference XMPs are in `temp/final_pose_sets/start0_ccw/`
-- Use 2-digit padding for 64-camera scans: `stack_00.xmp` to `stack_63.xmp`
-- Use 3-digit padding for 120-camera scans: `stack_000.xmp` to `stack_119.xmp`
+- Use zero-padding equal to the number of digits in `N-1`, where `N` is camera count
+  - 64 cameras -> `stack_00.xmp` to `stack_63.xmp` (2 digits)
+  - 120 cameras -> `stack_000.xmp` to `stack_119.xmp` (3 digits)
+  - 200 cameras -> `stack_000.xmp` to `stack_199.xmp` (3 digits)
 
 ## Development Guidelines
 
@@ -129,12 +144,14 @@ temp_script_path = r"f:\GIT\scanner-companion\temp\my_test_script.py"
 bad_path = r"f:\GIT\scanner-companion\my_test_script.py"
 ```
 
+These path examples assume Windows. On other platforms, adapt paths accordingly but preserve the `temp/` directory convention.
+
 ### Terminal Command Issues
 
 - Windows terminal has character truncation issues with long commands
 - **Always use Python scripts instead of direct terminal commands** for reliability
 - Create utility scripts in `temp/` directory when needed
-- Avoid `ls`, `cat`, or other commands that output large amounts of text
+- Avoid commands expected to emit more than about 50 lines or 2000 characters; prefer a Python filter script in `temp/`
 
 ### Testing XMP Changes
 
@@ -143,8 +160,9 @@ When testing XMP format changes:
 1. Create test script in `temp/` directory
 2. Make changes to `temp/small fly major test/stacks/` files
 3. Import into RealityScan to validate
-4. If successful, update `scanner_control.py` constants
-5. Document the working format
+4. If import fails, do not update `scanner_control.py`; report failure mode and run byte-by-byte comparison against reference
+5. If successful, update `scanner_control.py` constants
+6. Document the working format
 
 ### Code Style
 
@@ -158,6 +176,9 @@ When testing XMP format changes:
 ### Updating XMP Format
 
 1. **Reference check**: Compare against `temp/final_pose_sets/start0_ccw/stack_00.xmp`
+
+- If reference file is unavailable, stop and ask user to provide it
+
 2. **Test in temp directory**: Create script in `temp/` to modify test XMPs
 3. **Validate in RealityScan**: Import and check dropdown options
 4. **Update scanner_control.py**: Only if validation succeeds
@@ -173,8 +194,8 @@ When testing XMP format changes:
 
 ### Adding New Features
 
-- Test on actual hardware when possible
-- Maintain backward compatibility
+- For hardware-dependent changes, generate a test script in `temp/` and ask the user to run it on the Raspberry Pi; do not assume hardware behavior without user confirmation
+- Maintain backward compatibility with existing XMP files in `temp/final_pose_sets/start0_ccw/` and with public functions in `scanner_control.py` used by the GUI
 - Update this document with any new critical constants
 - Document XMP format dependencies
 
@@ -187,20 +208,13 @@ When testing XMP format changes:
 
 ### DO NOT:
 
-- Modify `VERIFIED_*` constants without explicit user request and empirical validation
-- Change XMP formatting (spacing, line breaks, attribute order)
-- Use values other than "locked"/"exact" for pose/calibration priors without testing
-- Create scripts in repository root (use `temp/` directory)
-- Attempt to "improve" the pose math without validation against working reference
-- Add line breaks within XML attribute values
+- Duplicate or override the rules in "Critical Rules (Single Source of Truth)"
+- Assume UI dropdown labels imply safe XMP export values
 
 ### ALWAYS:
 
-- Reference `temp/final_pose_sets/start0_ccw/stack_00.xmp` as the gold standard
-- Create temporary scripts in `temp/` directory
-- Test XMP changes in RealityScan before committing
-- Preserve exact formatting of working XMP files
-- Use Python scripts instead of terminal commands for reliability
+- Follow "Critical Rules (Single Source of Truth)" as authoritative
+- Report failure mode before retrying when scripts or RealityScan import fail
 
 ## Session Continuity
 

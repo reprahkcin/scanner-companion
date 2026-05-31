@@ -1,5 +1,7 @@
 # Sherline 6-Axis Scanner Configuration
 
+Status: Future (planned, not implemented in current scanner workflow)
+
 ## Overview
 
 Adapting a Sherline CNC mill with 4th axis rotary table for photogrammetry scanning. This configuration provides 6 degrees of freedom for comprehensive specimen coverage.
@@ -8,19 +10,19 @@ Adapting a Sherline CNC mill with 4th axis rotary table for photogrammetry scann
 
 ### Linear Axes (4)
 
-| Axis | Name | Purpose | Hardware |
-|------|------|---------|----------|
-| X | Mill X | Horizontal positioning (left/right) | Sherline CNC leadscrew |
-| Y | Mill Y | Horizontal positioning (front/back) | Sherline CNC leadscrew |
-| Z | Mill Z | Vertical positioning (up/down) | Sherline CNC leadscrew |
-| R | Camera Rail | Focus stacking (fine linear) | Linear rail on quill rotary |
+| Axis | Name        | Purpose                             | Hardware                    |
+| ---- | ----------- | ----------------------------------- | --------------------------- |
+| X    | Mill X      | Horizontal positioning (left/right) | Sherline CNC leadscrew      |
+| Y    | Mill Y      | Horizontal positioning (front/back) | Sherline CNC leadscrew      |
+| Z    | Mill Z      | Vertical positioning (up/down)      | Sherline CNC leadscrew      |
+| R    | Camera Rail | Focus stacking (fine linear)        | Linear rail on quill rotary |
 
 ### Rotational Axes (2)
 
-| Axis | Name | Purpose | Hardware |
-|------|------|---------|----------|
-| A | Specimen Rotary | Rotate specimen (parallel to X) | 4th axis rotary table with chuck |
-| B | Camera Tilt | Point camera angle (0°=horizontal, 90°=down) | Rotary table replacing quill |
+| Axis | Name            | Purpose                                      | Hardware                         |
+| ---- | --------------- | -------------------------------------------- | -------------------------------- |
+| A    | Specimen Rotary | Rotate specimen (parallel to X)              | 4th axis rotary table with chuck |
+| B    | Camera Tilt     | Point camera angle (0°=horizontal, 90°=down) | Rotary table replacing quill     |
 
 ## Physical Layout
 
@@ -58,7 +60,7 @@ Side View (looking from +Y toward -Y):
 
 - **Origin**: Center of specimen (chuck center)
 - **X**: Left/Right (A-axis rotation axis)
-- **Y**: Front/Back (toward operator)  
+- **Y**: Front/Back (toward operator)
 - **Z**: Up/Down (vertical)
 - **A**: Specimen rotation (degrees, 0° = top up)
 - **B**: Camera tilt (degrees, 0° = horizontal, 90° = looking down)
@@ -67,12 +69,14 @@ Side View (looking from +Y toward -Y):
 ## Scanning Strategy
 
 ### Horizontal Ring Scan (B = 0°)
+
 1. Position camera at horizontal (B = 0°)
 2. Set X, Y, Z to frame specimen
 3. Rotate specimen through A axis (0° → 360°)
 4. At each A position, capture focus stack using R axis
 
 ### Spherical Coverage Scan
+
 1. For each elevation angle B (e.g., 0°, 30°, 60°, 90°):
    - Tilt camera to B angle
    - Adjust X, Y, Z to maintain specimen framing
@@ -80,6 +84,7 @@ Side View (looking from +Y toward -Y):
    - Capture focus stacks at each A position
 
 ### Top-Down Scan (B = 90°)
+
 1. Tilt camera straight down (B = 90°)
 2. Position X, Y to center over specimen
 3. Use Z + R for focus stacking
@@ -88,16 +93,19 @@ Side View (looking from +Y toward -Y):
 ## Motion Controller Options
 
 ### Option 1: Existing Arduino + LinuxCNC Hybrid
+
 - Arduino controls camera rail (R) and relays
 - LinuxCNC/GRBL controls Sherline axes (X, Y, Z, A, B)
 - Python coordinates both via serial
 
 ### Option 2: Pure LinuxCNC
+
 - All axes controlled by LinuxCNC
 - Python sends G-code commands
 - Camera triggering via M-code or parallel port
 
 ### Option 3: GRBL-based
+
 - GRBL on Arduino Mega or dedicated board
 - 6-axis GRBL fork or multiple controllers
 - Python sends G-code via serial
@@ -105,6 +113,7 @@ Side View (looking from +Y toward -Y):
 ## Software Architecture Requirements
 
 ### Modular Axis System
+
 ```python
 class Axis:
     name: str           # "X", "Y", "Z", "A", "B", "R"
@@ -114,7 +123,7 @@ class Axis:
     max_limit: float
     steps_per_unit: float
     current_position: float
-    
+
 class MachineProfile:
     name: str
     axes: List[Axis]
@@ -123,6 +132,7 @@ class MachineProfile:
 ```
 
 ### Profile Examples
+
 - `raspberry_pi_3axis.json` - Current 3-motor setup
 - `sherline_6axis.json` - New Sherline configuration
 

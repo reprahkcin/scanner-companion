@@ -1,5 +1,7 @@
 # Spherical Scanning Implementation Status
 
+Status: Archived historical snapshot (may be outdated)
+
 **Date**: December 18, 2025  
 **Status**: ✅ Hardware integration complete - Motor 3 (tilt axis) and power relay functional
 
@@ -16,9 +18,11 @@ Added vertical tilt axis (Motor 3) with 5:1 planetary gearbox to enable spherica
 ## ✅ Completed Work
 
 ### 1. Arduino Firmware - Motor 3 Support
+
 **File**: `arduino/scanner_controller/scanner_controller.ino`
 
 **Changes**:
+
 - Added pin assignments for TB6600 driver:
   - `STEP_PIN_3 = 9`
   - `DIR_PIN_3 = 10`
@@ -33,9 +37,11 @@ Added vertical tilt axis (Motor 3) with 5:1 planetary gearbox to enable spherica
 - Extended `ZERO` and `GET_POS` commands to support Motor 3
 
 ### 2. Arduino Firmware - Power Relay Control
+
 **File**: `arduino/scanner_controller/scanner_controller.ino`
 
 **Changes**:
+
 - Added `POWER_RELAY_PIN = A0` for relay control
 - Implemented `setMotorPower()` function (supports low-trigger relays)
 - Added `POWER ON/OFF` and `GET_POWER` serial commands
@@ -43,9 +49,11 @@ Added vertical tilt axis (Motor 3) with 5:1 planetary gearbox to enable spherica
 - Extended `DEBUG_PINS` output to show relay state
 
 ### 3. Python GUI - Motor 3 Controls
+
 **File**: `scanner_control.py`
 
 **Changes**:
+
 - Added `self.motor3_position_deg` position tracker (initialized to 0.0°)
 - Created Motor 3 UI frame in Manual Control tab:
   - Position display
@@ -57,20 +65,24 @@ Added vertical tilt axis (Motor 3) with 5:1 planetary gearbox to enable spherica
   - `motor3_home()` - Zero the tilt axis position
 
 ### 4. Python GUI - Motor Power Control
+
 **File**: `scanner_control.py`
 
 **Changes**:
+
 - Added `self.motor_power_on` state tracker
 - Added Motor Power status display and toggle button in Manual Control tab
 - Implemented `toggle_motor_power()` function
 - Updated serial command parsing to accept `OK <message>` responses
 
 ### 5. Spherical Pose Mathematics
+
 **File**: `scanner_control.py`
 
 **Function**: `spherical_pose(radius_mm, azimuth_deg, elevation_deg)`
 
 **Features**:
+
 - Calculates camera position on sphere surface
 - Generates proper rotation matrix (camera always looks at origin)
 - Handles gimbal lock at extreme elevations (±90°)
@@ -78,6 +90,7 @@ Added vertical tilt axis (Motor 3) with 5:1 planetary gearbox to enable spherica
 - Returns `RigPose(pos_m, R_rowmajor)` compatible with XMP generation
 
 **Validation** (completed):
+
 - All rotation matrices are orthonormal with det=1
 - Camera positions lie exactly on specified sphere radius
 - Forward vectors correctly point toward origin
@@ -88,6 +101,7 @@ Added vertical tilt axis (Motor 3) with 5:1 planetary gearbox to enable spherica
 ## 🔧 Remaining Work
 
 ### 4. Spiral Sweep Capture Sequence
+
 **Status**: Not started - hardware ready, software implementation needed
 
 **Location**: Modify `_run_capture_sequence()` in `scanner_control.py`
@@ -95,6 +109,7 @@ Added vertical tilt axis (Motor 3) with 5:1 planetary gearbox to enable spherica
 **Implementation Plan**:
 
 1. **Spiral Path Calculation**:
+
    ```python
    # User inputs:
    sphere_radius_mm = 100.0        # Distance from camera to specimen
@@ -102,45 +117,46 @@ Added vertical tilt axis (Motor 3) with 5:1 planetary gearbox to enable spherica
    thread_count = 5                # Number of spiral threads
    shots_per_thread = 36           # Shots per 360° rotation
    focus_slices = 5                # Focus stack depth per pose
-   
+
    # Calculate total shots
    total_shots = thread_count * shots_per_thread
    elevation_span = elevation_range[1] - elevation_range[0]
-   
+
    # For each shot:
    for shot_idx in range(total_shots):
        progress = shot_idx / (total_shots - 1)
        elevation = elevation_range[1] - (progress * elevation_span)  # Top to bottom
        azimuth = (shot_idx * 360.0 / shots_per_thread) % 360.0
-       
+
        # Move motors
        move_to_angle(azimuth)          # Motor 1: turntable
        move_to_tilt(elevation)         # Motor 3: tilt axis (NEW)
-       
+
        # Focus stack at this (azimuth, elevation) pose
        for focus_slice in range(focus_slices):
            focus_position = interpolate_focus_position(azimuth, slice/slices)
            move_to_focus_position(focus_position)  # Motor 2: linear rail
            capture_image(filepath)
-       
+
        # Generate XMP using spherical_pose()
        pose = spherical_pose(sphere_radius_mm, azimuth, elevation)
        write_xmp_sidecar(xmp_path, pose, ...)
    ```
 
 2. **Motor Movement Function** (add to `scanner_control.py`):
+
    ```python
    def move_to_tilt(self, target_elevation_deg):
        """Move tilt axis (Motor 3) to specified elevation angle"""
        current = self.motor3_position_deg
        delta = target_elevation_deg - current
-       
+
        if abs(delta) < 0.1:  # Already at target
            return True
-       
+
        direction = "UP" if delta > 0 else "DOWN"
        command = f"TILT 3 {abs(delta):.2f} {direction}"
-       
+
        if self.send_motor_command(command):
            self.motor3_position_deg = target_elevation_deg
            return True
@@ -168,6 +184,7 @@ Added vertical tilt axis (Motor 3) with 5:1 planetary gearbox to enable spherica
 ---
 
 ### 5. UI Controls for Spherical Mode
+
 **Status**: Not started
 
 **Location**: Capture tab in `scanner_control.py`
@@ -179,6 +196,7 @@ Added vertical tilt axis (Motor 3) with 5:1 planetary gearbox to enable spherica
    - Show/hide relevant parameters based on selection
 
 2. **Spherical Parameters** (show when spherical mode selected):
+
    ```
    ┌─ Spherical Scan Settings ─────────────────────┐
    │ Sphere Radius:      [100.0] mm               │
@@ -208,9 +226,11 @@ Added vertical tilt axis (Motor 3) with 5:1 planetary gearbox to enable spherica
 ---
 
 ### 6. Testing & Validation
+
 **Status**: Hardware verified, capture sequence testing pending
 
 **Completed Tests**:
+
 - ✅ Motor 3 wiring and basic movement
 - ✅ Direction mapping (UP = positive angle)
 - ✅ Steps/degree calibration (88.8889 with 5:1 gearbox)
@@ -299,21 +319,25 @@ Motor 3 and power relay are now installed:
 ## 🔍 Known Issues & Considerations
 
 ### 1. Upside-Down Model Issue
+
 **Status**: Unresolved (affects horizontal ring poses too)
 
 The current `ring_pose()` rotation matrix produces geometrically valid poses, but models render upside-down in RealityScan. Investigation showed the current rotation matrix convention `[right, up, forward]` is mathematically correct (orthonormal, det=1, origin at positive Z in camera space).
 
 **Possible Causes**:
+
 - World coordinate system mismatch (Z-up vs Y-up)
 - RealityCapture expects different camera convention
 - Row-major vs column-major interpretation
 
 **Impact on Spherical Scanning**:
+
 - `spherical_pose()` uses same convention as `ring_pose()`
 - Will likely have same orientation issue
 - May need to test different rotation matrix arrangements
 
 **Testing Strategy**:
+
 1. Generate minimal test set (4 poses: N, E, S, W at horizon)
 2. Try different rotation matrix variants:
    - `[right, -up, forward]` (flip vertical)
@@ -324,9 +348,11 @@ The current `ring_pose()` rotation matrix produces geometrically valid poses, bu
 5. Update both `ring_pose()` and `spherical_pose()`
 
 ### 2. Focus Stacking at Oblique Angles
+
 When camera tilts up/down, the focus plane changes relative to the specimen. Current calibration system assumes horizontal ring.
 
 **Options**:
+
 - **Simple**: Use constant sphere radius, disable focus calibration
 - **Advanced**: Extend calibration to (azimuth, elevation) grid
 - **Compromise**: Use average focus distance for all angles
@@ -334,6 +360,7 @@ When camera tilts up/down, the focus plane changes relative to the specimen. Cur
 Recommend starting with constant radius approach.
 
 ### 3. PosePrior Settings
+
 Current: `PosePrior="locked"` prevents RealityScan from adjusting poses.
 
 **Issue**: Focus stacking introduces small position shifts that need correction.
@@ -345,6 +372,7 @@ Current: `PosePrior="locked"` prevents RealityScan from adjusting poses.
 ## 📚 Reference Files
 
 **Core Implementation**:
+
 - `arduino/scanner_controller.ino` - Motor 3 firmware
 - `scanner_control.py` - Main GUI and control logic
   - Lines 133-198: `spherical_pose()` function
@@ -352,11 +380,13 @@ Current: `PosePrior="locked"` prevents RealityScan from adjusting poses.
   - Lines 2404+: `_run_capture_sequence()` (needs spherical mode)
 
 **Testing & Validation**:
+
 - `temp/test_rotation_conventions.py` - Rotation matrix validation
 - `temp/test_spherical_poses.py` - Spherical pose generation test
 - `temp/final_pose_sets/` - Working XMP reference files
 
 **Documentation**:
+
 - `.github/copilot-instructions.md` - Project context and conventions
 - `docs/FEATURES.md` - Feature documentation
 - `docs/hardware_setup.md` - Wiring and assembly guide
@@ -399,15 +429,16 @@ Current: `PosePrior="locked"` prevents RealityScan from adjusting poses.
 
 **Common Issues**:
 
-| Problem | Solution |
-|---------|----------|
+| Problem                | Solution                                                       |
+| ---------------------- | -------------------------------------------------------------- |
 | Motor 3 not responding | Check wiring, verify firmware upload, test with Serial Monitor |
-| Wrong direction | Toggle `DIR_REVERSE_M3` in firmware |
-| Position drift | Recalibrate `STEPS_PER_DEGREE_M3`, check mechanical binding |
-| XMP import fails | Validate rotation matrix, check file naming consistency |
-| Models upside-down | Test alternative rotation matrix conventions |
+| Wrong direction        | Toggle `DIR_REVERSE_M3` in firmware                            |
+| Position drift         | Recalibrate `STEPS_PER_DEGREE_M3`, check mechanical binding    |
+| XMP import fails       | Validate rotation matrix, check file naming consistency        |
+| Models upside-down     | Test alternative rotation matrix conventions                   |
 
 **Testing Commands** (Arduino Serial Monitor):
+
 ```
 TILT 3 10 UP          # Tilt 10° upward
 TILT 3 10 DOWN        # Tilt 10° downward

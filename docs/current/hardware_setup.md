@@ -1,10 +1,13 @@
 # Hardware Setup Guide
 
+Status: Current (supported)
+
 This guide covers the physical setup and wiring for the 3D Scanner Control Panel.
 
 ## Hardware Components
 
 ### Required Components
+
 - Raspberry Pi 4 (4GB+ recommended)
 - Arduino Uno/Nano
 - 3x Stepper Motors (NEMA 17 recommended)
@@ -16,6 +19,7 @@ This guide covers the physical setup and wiring for the 3D Scanner Control Panel
 - Jumper Wires
 
 ### Mechanical Components
+
 - Rotating Platform (lazy susan bearing) - Motor 1
 - Linear Rail System (20mm rail recommended) - Motor 2
 - Lead Screw (T8 or similar) - Motor 2
@@ -29,28 +33,33 @@ This guide covers the physical setup and wiring for the 3D Scanner Control Panel
 ### Arduino Connections
 
 Motor 1 (Rotation) - Driver 1:
+
 - Arduino Pin 2 -> STEP
 - Arduino Pin 3 -> DIR
 - Arduino Pin 13 -> ENABLE
 
 Motor 2 (Linear Rail) - Driver 2:
+
 - Arduino Pin 4 -> STEP
 - Arduino Pin 5 -> DIR
 - Arduino Pin 12 -> ENABLE
 - Arduino Pin 7 -> Limit Switch (INPUT_PULLUP)
 
 Motor 3 (Tilt) - Driver 3:
+
 - Arduino Pin 9 -> STEP
 - Arduino Pin 10 -> DIR
 - Arduino Pin 11 -> ENABLE
 - Arduino Pin 8 -> Limit Switch (reserved, INPUT_PULLUP)
 
 Power Relay:
+
 - Arduino Pin A0 -> Relay IN (low-trigger: LOW = ON)
 - Relay COM -> 24V power supply positive
 - Relay NO -> Motor drivers VMOT
 
 Motor Driver Common:
+
 - Driver ENA+ -> 5V (Arduino)
 - Driver ENA- -> Arduino ENABLE pin
 - Driver VDD -> 5V (Arduino)
@@ -58,7 +67,9 @@ Motor Driver Common:
 - Driver GND -> GND (Common)
 
 ### TB6600 Enable Logic
+
 With ENA+ tied to 5V and ENA- connected to Arduino pin:
+
 - Pin HIGH = Driver ENABLED (motor holds position)
 - Pin LOW = Driver DISABLED (motor free, quiet)
 

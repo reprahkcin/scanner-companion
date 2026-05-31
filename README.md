@@ -13,6 +13,7 @@ A comprehensive control application for a 3-axis photogrammetry scanner using Ra
    - Ensure proper wiring and power supply
 
 2. **Software Installation**
+
    ```bash
    # Clone the repository
    git clone https://github.com/reprahkcin/scanner-companion.git
@@ -31,21 +32,26 @@ A comprehensive control application for a 3-axis photogrammetry scanner using Ra
    - Follow the guided workflow to set focus positions
    - Save calibration for future use
 
+Documentation entry point: [docs/README.md](docs/README.md)
+
 ## ✨ Features
 
 ### 📷 Manual Control
+
 - **Live Camera Preview**: Real-time camera feed with adjustable settings
 - **3-Axis Motor Control**: Control rotation (M1), linear focus rail (M2), and vertical tilt (M3)
 - **Position Tracking**: Real-time position display for all three motors
 - **Motor Power Control**: Relay-controlled 24V power with GUI toggle
 
 ### 🎯 Automated Calibration
+
 - **Cardinal Point Calibration**: Guided setup at 0°, 90°, 180°, and 270°
 - **Focus Range Mapping**: Define near and far focus positions
 - **Automatic Interpolation**: Smart interpolation for all angles
 - **Persistent Storage**: Save/load calibration data
 
 ### 📸 Automated Capture
+
 - **Perspectives (angles)**: Number of camera perspectives around 360°
 - **Focus slices per angle**: Number of focus steps at each perspective
 - **Angle step**: Computed as `360 / perspectives` (shown in UI)
@@ -54,6 +60,7 @@ A comprehensive control application for a 3-axis photogrammetry scanner using Ra
 - **Organized Output**: One folder per perspective; files named with angle and slice index
 
 ### ⚙️ Camera Settings
+
 - **Manual Controls**: Shutter speed, brightness, exposure
 - **Auto/Manual Modes**: Flexible exposure settings
 - **Real-time Metadata**: Live camera property display
@@ -69,7 +76,12 @@ scanner-companion/
 ├── arduino/
 │   └── scanner_controller.ino # Arduino firmware
 ├── docs/
-│   └── FEATURES.md            # Detailed feature documentation
+│   ├── README.md              # Docs index (start here)
+│   ├── PROJECT_STATUS.md      # Current vs future vs archived status
+│   ├── current/               # Active scanner docs (supported now)
+│   ├── future/                # Planned work (not implemented)
+│   ├── reference/             # Shared concepts/design references
+│   └── archive/               # Historical/outdated docs kept for context
 ├── examples/
 │   └── sample_calibration.json # Example calibration
 └── legacy/                    # Previous versions (v1-v4)
@@ -82,6 +94,7 @@ scanner-companion/
 ## 🔧 Hardware Requirements
 
 ### Electronics
+
 - **Raspberry Pi 4+** (recommended)
 - **Arduino Uno/Nano** with stepper motor drivers (TB6600 recommended)
 - **3x Stepper Motors**: rotation platform, linear focus rail, vertical tilt axis
@@ -89,6 +102,7 @@ scanner-companion/
 - **24V Relay Module**: for motor power control (low-trigger)
 
 ### Mechanical
+
 - **Rotating Platform** for specimen mounting (Motor 1)
 - **Linear Rail System** for focus adjustment (Motor 2)
 - **Vertical Tilt Mechanism** for elevation control (Motor 3 with 5:1 gearbox)
@@ -97,12 +111,14 @@ scanner-companion/
 ## 📊 Workflow
 
 ### Calibration Process
+
 1. **Position at Cardinal Points**: 0°, 90°, 180°, 270°
 2. **Set Focus Range**: Define near and far focus positions
 3. **Validation**: System verifies calibration completeness
 4. **Save Settings**: Store for future capture sessions
 
 ### Capture Process
+
 - **Perspectives**: Evenly spaced by the displayed angle step (e.g., 5°)
 - **Focus Slices**: Evenly distributed between near/far calibration per angle
 - **Focus Interpolation**: Smart interpolation between calibrated cardinal points
@@ -137,6 +153,7 @@ We welcome contributions! Here's how to get started:
 6. **Submit a pull request**
 
 ### Development Guidelines
+
 - Test changes on actual hardware when possible
 - Maintain backward compatibility for calibration files
 - Update documentation for new features
@@ -145,12 +162,14 @@ We welcome contributions! Here's how to get started:
 ## 🐛 Troubleshooting
 
 ### Common Issues
+
 1. **Serial Connection**: Check `/dev/ttyACM0` and Arduino sketch
 2. **Camera Preview**: Verify picamera2 installation
 3. **Motor Movement**: Check wiring and power supply
 4. **Calibration**: Ensure all cardinal points are set
 
 ### Dependencies
+
 ```bash
 # System packages (Ubuntu/Debian)
 sudo apt update
@@ -166,7 +185,10 @@ This project is open source under the MIT License. See individual component lice
 
 ## 🔗 Links
 
-- **Documentation**: [docs/FEATURES.md](docs/FEATURES.md)
+- **Documentation Index**: [docs/README.md](docs/README.md)
+- **Current Scanner Quick Start**: [docs/current/QUICKSTART.md](docs/current/QUICKSTART.md)
+- **Current Scanner Features**: [docs/current/FEATURES.md](docs/current/FEATURES.md)
+- **Project Status**: [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)
 - **Arduino Firmware**: [arduino/scanner_controller.ino](arduino/scanner_controller.ino)
 - **Examples**: [examples/](examples/)
 - **Legacy Versions**: [legacy/](legacy/)
@@ -174,6 +196,7 @@ This project is open source under the MIT License. See individual component lice
 ## 📞 Support
 
 For questions, issues, or contributions, please:
+
 1. Check existing issues on GitHub
 2. Create a new issue with detailed description
 3. Include hardware setup and error logs
