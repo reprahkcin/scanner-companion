@@ -710,6 +710,11 @@ class ScannerGUI(tk.Tk):
         # Initialize status displays
         self.after(100, self._update_manual_status)
 
+        # Force motor power relay OFF on startup so the app state matches hardware.
+        # Arduino resets when the serial port opens; wait briefly for its boot
+        # banner to clear, then issue an explicit POWER OFF.
+        self.after(1500, self._initial_power_off)
+
     def _build_gui(self):
         # Create main notebook for tabs
         # Create main container with notebook on left and help panel on right
@@ -2293,11 +2298,31 @@ How to calibrate (advanced):
         command = f"ZERO {motor}"
         return self.send_motor_command(command)
 
+    def _initial_power_off(self):
+        """Force relay OFF on startup so app state matches hardware."""
+        if not self.ser or not self.ser.is_open:
+            return
+        self._debug_event("relay.init.power_off")
+        try:
+            self.ser.reset_input_buffer()
+        except Exception:
+            pass
+        if self.send_motor_command("POWER OFF"):
+            self.motor_power_on = False
+            try:
+                self.motor_power_status_var.set("OFF")
+                self.btn_motor_power.config(text="Turn ON")
+            except Exception:
+                pass
+            self.status_var.set("Motor power initialized OFF")
+            self._debug_event("relay.init.success", "state=OFF")
+        else:
+            self._debug_event("relay.init.error")
+
     def toggle_motor_power(self):
         """Toggle the 24V motor power relay on/off"""
         self._debug_event("relay.toggle.request",
-                          f"motor_power_on={self.motor_power_on}")
-        if self.motor_power_on:
+                          f"motor_power_on={self.motor_power_on}") if self.motor_power_on:
             # Turn OFF
             if self.send_motor_command("POWER OFF"):
                 self.motor_power_on = False
