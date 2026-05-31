@@ -2,8 +2,8 @@
 
 ## Installation
 1. Clone: git clone https://github.com/reprahkcin/scanner-companion.git
-2. Install: pip install -r requirements.txt
-3. Run: ./run_scanner.sh
+2. Run: ./run_scanner.sh
+3. Optional health check only: ./run_scanner.sh --doctor
 
 ## First Use
 1. Test camera preview

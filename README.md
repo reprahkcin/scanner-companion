@@ -17,14 +17,12 @@ A comprehensive control application for a 3-axis photogrammetry scanner using Ra
    # Clone the repository
    git clone https://github.com/reprahkcin/scanner-companion.git
    cd scanner-companion
-   
-   # Install dependencies
-   pip install -r requirements.txt
-   
-   # Run the application
+
+   # Launch (auto-creates/repairs .venv and validates dependencies)
    ./run_scanner.sh
-   # or
-   python3 scanner_control.py
+
+   # Optional: run checks only (no GUI launch)
+   ./run_scanner.sh --doctor
    ```
 
 3. **Initial Calibration**
