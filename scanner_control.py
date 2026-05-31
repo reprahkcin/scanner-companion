@@ -812,7 +812,7 @@ class ScannerGUI(tk.Tk):
 
         self.preview_label = tk.Label(
             self.camera_frame, bg="black", anchor="center")
-        self.preview_label.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+        self.preview_label.grid(row=0, column=0, padx=5, pady=5)
         self.btn_preview = ttk.Button(
             self.camera_frame, text="Start Preview", command=self.toggle_preview)
         self.btn_preview.grid(row=1, column=0, pady=(5, 0))
@@ -1083,7 +1083,7 @@ TIPS:
         self.cal_preview_label = tk.Label(
             self.cal_camera_frame, bg="black", anchor="center")
         self.cal_preview_label.grid(
-            row=0, column=0, padx=5, pady=5, sticky="nsew")
+            row=0, column=0, padx=5, pady=5)
 
         self.cal_btn_preview = ttk.Button(self.cal_camera_frame, text="Start Preview",
                                           command=self.toggle_preview)
@@ -3060,7 +3060,7 @@ How to calibrate (advanced):
         self.guided_preview_label = tk.Label(
             preview_frame, bg="black", anchor="center")
         self.guided_preview_label.pack(
-            fill="both", expand=True, padx=5, pady=5)
+            padx=5, pady=5)
 
         ttk.Button(preview_frame, text="Toggle Preview",
                    command=self.toggle_preview).pack(pady=(0, 5))
