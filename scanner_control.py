@@ -1964,6 +1964,30 @@ How to calibrate (advanced):
             self.preview_placeholder_image = placeholder
             self._preview_placeholder_size = (w, h)
 
+        # Keep preview surfaces identical across all tabs, even as layout changes.
+        self._lock_preview_surfaces((w, h))
+
+    def _lock_preview_surfaces(self, size):
+        """Lock all preview widgets to the same pixel dimensions."""
+        w, h = size
+
+        for attr in ('preview_label', 'cal_preview_label', 'camera_preview_label', 'guided_preview_label'):
+            if hasattr(self, attr):
+                lbl = getattr(self, attr)
+                lbl.config(width=w, height=h)
+
+        frame_w = w + 20
+        frame_h = h + 60
+
+        for attr in ('camera_frame', 'cal_camera_frame', 'camera_preview_frame', 'guided_preview_frame'):
+            if hasattr(self, attr):
+                frm = getattr(self, attr)
+                frm.config(width=frame_w, height=frame_h)
+                try:
+                    frm.pack_propagate(False)
+                except Exception:
+                    pass
+
     def _apply_preview_placeholder(self, size=None):
         """Apply placeholder image to all preview labels to keep layout stable."""
         self._ensure_preview_placeholder(size=size)
@@ -2047,8 +2071,9 @@ How to calibrate (advanced):
                 # Fallback if mode not matching
                 image = Image.fromarray(frame)
 
-            if image.size != CAMERA_RESOLUTION:
-                image = image.resize(CAMERA_RESOLUTION, Image.LANCZOS)
+            target_size = self._current_preview_size()
+            if image.size != target_size:
+                image = image.resize(target_size, Image.LANCZOS)
 
             photo = ImageTk.PhotoImage(image)
             self.preview_image = photo
@@ -3053,16 +3078,16 @@ How to calibrate (advanced):
         # === RIGHT COLUMN ===
 
         # Camera Preview Frame
-        preview_frame = ttk.LabelFrame(
+        self.guided_preview_frame = ttk.LabelFrame(
             right_column, text="Preview", padding=10)
-        preview_frame.pack(fill="both", expand=True, pady=(0, 5))
+        self.guided_preview_frame.pack(fill="x", pady=(0, 5))
 
         self.guided_preview_label = tk.Label(
-            preview_frame, bg="black", anchor="center")
+            self.guided_preview_frame, bg="black", anchor="center")
         self.guided_preview_label.pack(
             padx=5, pady=5)
 
-        ttk.Button(preview_frame, text="Toggle Preview",
+        ttk.Button(self.guided_preview_frame, text="Toggle Preview",
                    command=self.toggle_preview).pack(pady=(0, 5))
 
         # Current Position Frame
