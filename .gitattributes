@@ -1,0 +1,13 @@
+# Normalize line endings to LF on commit; check out LF on all platforms.
+# Prevents the CRLF churn that happens when editing across machines.
+* text=auto eol=lf
+
+# Treat known binary types as binary (never normalized)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.tiff binary
+*.img binary
+*.zip binary
+*.hex binary
+*.elf binary
