@@ -22,7 +22,7 @@ Adapting a Sherline CNC mill with 4th axis rotary table for photogrammetry scann
 | Axis | Name            | Purpose                                      | Hardware                         |
 | ---- | --------------- | -------------------------------------------- | -------------------------------- |
 | A    | Specimen Rotary | Rotate specimen (parallel to X)              | 4th axis rotary table with chuck |
-| B    | Camera Tilt     | Point camera angle (0°=horizontal, 90°=down) | Rotary table replacing quill     |
+| B    | Camera Tilt     | Point camera angle (0°=straight down, 90°=horizontal) | Rotary table replacing quill     |
 
 ## Physical Layout
 
@@ -63,14 +63,14 @@ Side View (looking from +Y toward -Y):
 - **Y**: Front/Back (toward operator)
 - **Z**: Up/Down (vertical)
 - **A**: Specimen rotation (degrees, 0° = top up)
-- **B**: Camera tilt (degrees, 0° = horizontal, 90° = looking down)
+- **B**: Camera tilt (degrees, 0° = looking straight down (−Z), 90° = horizontal). Positive B tilts the optical axis about +Y toward +X.
 - **R**: Camera rail position (mm, focus distance)
 
 ## Scanning Strategy
 
-### Horizontal Ring Scan (B = 0°)
+### Horizontal Ring Scan (B = 90°)
 
-1. Position camera at horizontal (B = 0°)
+1. Position camera at horizontal (B = 90°)
 2. Set X, Y, Z to frame specimen
 3. Rotate specimen through A axis (0° → 360°)
 4. At each A position, capture focus stack using R axis
@@ -83,9 +83,9 @@ Side View (looking from +Y toward -Y):
    - Rotate specimen through A axis
    - Capture focus stacks at each A position
 
-### Top-Down Scan (B = 90°)
+### Top-Down Scan (B = 0°)
 
-1. Tilt camera straight down (B = 90°)
+1. Tilt camera straight down (B = 0°)
 2. Position X, Y to center over specimen
 3. Use Z + R for focus stacking
 4. Rotate specimen through A for coverage

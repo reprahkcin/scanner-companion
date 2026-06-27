@@ -291,7 +291,7 @@ def create_sherline_6axis_profile() -> MachineProfile:
     return MachineProfile(
         name="sherline_6axis",
         description="Sherline CNC mill with 4th axis rotary and quill-mounted camera tilt",
-        version="1.0",
+        version="3.0",
         axes=[
             # Mill linear axes
             AxisConfig(
@@ -359,7 +359,7 @@ def create_sherline_6axis_profile() -> MachineProfile:
                 axis_type=AxisType.ROTARY,
                 units="deg",
                 min_limit=0.0,
-                max_limit=90.0,  # 0=horizontal, 90=looking down
+                max_limit=90.0,  # 0=looking straight down (-Z), 90=horizontal/side
                 steps_per_unit=44.444,
                 controller_axis="B",
                 role="camera_tilt",
