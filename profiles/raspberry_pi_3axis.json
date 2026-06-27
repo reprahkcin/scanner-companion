@@ -2,7 +2,7 @@
   "name": "raspberry_pi_3axis",
   "description": "MKI Scanner: 3-axis with rotation platform, linear focus rail, and vertical tilt",
   "version": "2.0",
-  
+
   "axes": [
     {
       "name": "M1",
@@ -59,7 +59,7 @@
       "role": "tilt"
     }
   ],
-  
+
   "controllers": [
     {
       "controller_type": "arduino_serial",
@@ -72,10 +72,10 @@
       }
     }
   ],
-  
+
   "arduino_hardware": {
     "_comment": "Pin definitions and driver settings for Arduino firmware",
-    
+
     "motors": {
       "M1": {
         "step_pin": 2,
@@ -112,40 +112,40 @@
         "microstepping": 32,
         "steps_per_revolution": 200,
         "gear_ratio": 5.0,
-        "pulse_delay_us": 1500,
+        "pulse_delay_us": 500,
         "dir_inverted": false,
-        "_comment": "Tilt: 5:1 planetary gearbox, slow for stability"
+        "_comment": "Tilt: 5:1 planetary gearbox, fast constant speed (no ramp needed)"
       }
     },
-    
+
     "driver_settings": {
       "enable_active_high": true,
       "_comment": "TB6600: ENA+ to 5V, ENA- to pin → HIGH enables motor"
     },
-    
+
     "power_relay": {
       "pin": "A0",
       "active_low": true,
       "_comment": "LOW-trigger relay module: LOW = relay energized = 24V ON"
     }
   },
-  
+
   "axis_controller_map": {
     "M1": "arduino",
     "M2": "arduino",
     "M3": "arduino"
   },
-  
+
   "scene_geometry": {
     "coordinate_system": "Z-up, right-handed",
     "description": "Camera on X-axis rail pointing at specimen. Specimen rotates on Z-axis turntable. Turntable tilts on Y-axis.",
-    
+
     "specimen": {
       "position": [0, 0, 0],
       "mounted_on": "M1",
       "notes": "Specimen fixed to turntable platform. Remains at origin during rotation. Tilts with M3 but pivot designed to keep specimen centered."
     },
-    
+
     "axes_geometry": {
       "M1": {
         "role": "turntable",
@@ -176,7 +176,7 @@
         "notes": "Tilt motor rotates entire turntable assembly. Pivot designed so specimen stays at origin."
       }
     },
-    
+
     "camera": {
       "mounted_on": "M2",
       "looks_at": "specimen",
@@ -185,7 +185,7 @@
       "notes": "Camera faces -X direction (toward origin). Position changes with M2 (focus rail)."
     }
   },
-  
+
   "scan_defaults": {
     "perspectives": 72,
     "focus_slices": 5,
@@ -198,7 +198,7 @@
       "elevation_steps": 5
     }
   },
-  
+
   "pose_calculation": {
     "method": "specimen_rotating",
     "notes": "Turntable rotates specimen CCW, equivalent to camera orbiting CW. Pose calculated as: 1) Camera at focus distance on +X axis, 2) Apply tilt (Y rotation), 3) Apply inverse turntable angle (camera orbits opposite to specimen rotation)."

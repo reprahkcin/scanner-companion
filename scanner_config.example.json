@@ -1,32 +1,38 @@
 {
   "_comment": "Example scanner configuration. Copy to scanner_config.json and customize.",
   "_comment2": "Only include the settings you want to change - defaults are loaded automatically.",
-  
+
   "profile": "raspberry_pi_3axis",
-  
+
   "serial": {
     "port": "/dev/ttyACM0",
     "baudrate": 115200,
     "timeout": 0.1,
     "_comment": "Use /dev/serial/by-id/... for more stable device identification"
   },
-  
+
   "camera": {
     "preview_resolution": "640x480",
     "capture_resolution": "4056x3040",
+    "preview_update_interval_ms": 300,
     "preview_color_swap": true,
-    "_comment": "preview_color_swap: true for BGR->RGB conversion (Pi Camera)"
+    "anti_flicker_enabled": true,
+    "flicker_frequency_hz": 60,
+    "focus_lock_enabled": false,
+    "focus_lens_position": 0.0,
+    "_comment": "preview_update_interval_ms controls preview refresh cadence (300ms ~= 3.3Hz); preview_color_swap: true for BGR->RGB conversion (Pi Camera); set flicker_frequency_hz to 60 (US) or 50 (EU); focus lock applies only on AF-capable modules"
   },
-  
+
   "capture": {
     "output_dir": "~/Desktop/scanner_captures",
     "default_perspectives": 72,
     "default_focus_slices": 5,
     "settle_delay": 1.0,
     "image_format": "JPG",
-    "_comment": "perspectives: number of rotational positions (72 = 5° steps for full 360°)"
+    "jpeg_quality": 100,
+    "_comment": "perspectives: number of rotational positions (72 = 5° steps for full 360°); prefer PNG/TIFF for stacking fidelity"
   },
-  
+
   "xmp": {
     "lens_to_object_mm": 250.0,
     "rail_to_horizon_deg": 0.0,
@@ -35,7 +41,7 @@
     "distortion_model": "brown3",
     "_comment": "These values customize XMP sidecar generation for RealityScan/RealityCapture"
   },
-  
+
   "ui": {
     "always_on_top": true,
     "jog_step_delay": 0.05,

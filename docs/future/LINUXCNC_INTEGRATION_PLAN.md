@@ -297,5 +297,5 @@ scanner-companion/
 ## References
 
 - [LinuxCNC Python Interface](http://linuxcnc.org/docs/html/config/python-interface.html)
-- [Scanner Companion Documentation](./FEATURES.md)
+- [Scanner Companion Documentation](../current/FEATURES.md)
 - [Network Topology](../../home-network-setup/docs/network-topology.md)

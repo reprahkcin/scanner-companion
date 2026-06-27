@@ -26,6 +26,7 @@ VERIFIED_DISTORTION_COEFFS = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 ```
 
 **XMP Formatting Rules** (These are correct):
+
 - Each xcr attribute on own line with proper indentation
 - `xcr:Rotation` and `xcr:Position` as **child elements**, NOT attributes
 - Rotation: 9 space-separated floats, 10 decimal places
@@ -53,6 +54,7 @@ VERIFIED_DISTORTION_COEFFS = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
    - Better approach: Detect when positions would be <0.01m and auto-scale
 
 **Camera Pose Convention** (Z-up world, NEEDS VALIDATION):
+
 ```python
 # ring_pose() in scanner_control.py - CURRENT implementation (produces upside-down models)
 forward = normalize(target - camera_position)  # Inward toward origin
@@ -65,6 +67,7 @@ R = [right, up, forward]  # Row-major 3x3 rotation matrix
 ```
 
 **Angle Calculation** (This is correct):
+
 ```python
 # In _run_capture_sequence()
 angle_step = 360.0 / stacks_count
@@ -79,6 +82,7 @@ Starting angle: 0° = camera at +X axis looking toward origin, counter-clockwise
 ## Architecture & Data Flow
 
 ### 1. Hardware Control Chain
+
 ```
 GUI Event → send_motor_command() → Serial "/dev/ttyACM0" @ 115200 baud
   → Arduino parses command → Stepper driver pulses → Motor moves
@@ -86,6 +90,7 @@ GUI Event → send_motor_command() → Serial "/dev/ttyACM0" @ 115200 baud
 ```
 
 ### 2. Serial Protocol (Arduino Commands)
+
 ```cpp
 ROTATE <motor> <degrees> <CW|CCW>    // Motor 1: rotation platform
 MOVE <motor> <millimeters> <FORWARD|BACKWARD>  // Motor 2: linear rail focus
@@ -97,6 +102,7 @@ GET_POWER                             // Query power state
 ```
 
 **Calibration Constants** (in `arduino/scanner_controller/scanner_controller.ino`):
+
 - Motor 1: `STEPS_PER_DEGREE_M1 = 17.7778` (rotation, 32x microstepping)
 - Motor 2: `STEPS_PER_MM_M2 = 1281.21` (linear rail, calibrated)
 - Motor 3: `STEPS_PER_DEGREE_M3 = 88.8889` (tilt, 5:1 gearbox)
@@ -104,7 +110,9 @@ GET_POWER                             // Query power state
 - Power relay on pin A0 (low-trigger)
 
 ### 3. Calibration System
+
 **Cardinal point calibration** at 0°, 90°, 180°, 270° defines focus envelope:
+
 ```python
 calibration_data = {
     0: {"near": 45.2, "far": 78.6},    # millimeters on linear rail
@@ -114,17 +122,20 @@ calibration_data = {
 ```
 
 **Focus interpolation** (`interpolate_focus_position()`):
+
 - Uses bilinear interpolation between nearest cardinal angles
 - Adjusts for specimen shape variations around rotation
 - Example: angle 45° uses weighted average of 0° and 90° calibration data
 
 ### 4. Capture Workflow
+
 ```
 Start → Move to angle → Interpolate focus range → Capture focus stack → Generate XMP
   → Rotate to next angle → Repeat → Session complete
 ```
 
 **File Organization**:
+
 ```
 output_dir/specimen_name/session_YYYYMMDD_HHMMSS/
   ├── metadata.json                    # Session parameters
@@ -137,13 +148,15 @@ output_dir/specimen_name/session_YYYYMMDD_HHMMSS/
   └── ...
 ```
 
-**Naming Convention**: 
+**Naming Convention**:
+
 - 2-digit padding for ≤99 stacks: `stack_00` to `stack_63`
 - 3-digit padding for ≥100 stacks: `stack_000` to `stack_119`
 
 ## Key Development Patterns
 
 ### Camera Control (Picamera2)
+
 ```python
 # Always use camera_lock for thread safety
 with self.camera_lock:
@@ -157,12 +170,14 @@ with self.camera_lock:
 **Resolution switching**: Stop camera → Reconfigure → Restart before capture to avoid sensor mode conflicts.
 
 ### Threading Model
+
 - Main GUI thread: Tkinter event loop
 - Capture thread: `_run_capture_sequence()` in separate thread
 - Preview updates: `after()` callbacks for non-blocking updates
 - Use `self.capture_running` flag to coordinate stop requests
 
 ### Position Tracking
+
 ```python
 # Python side maintains mirror of Arduino position counters
 self.motor1_position_deg  # Degrees (rotation platform)
@@ -177,25 +192,31 @@ actual_pos = self.get_motor_position(motor_num)
 ## Common Development Tasks
 
 ### Adding New Camera Settings
+
 1. Add Tkinter variable in `__init__`: `self.new_setting = tk.DoubleVar(value=1.0)`
 2. Create UI control in `_build_camera_settings_tab()`
 3. Apply in `start_preview()` or `capture_image()`: `self.camera.set_controls({"NewSetting": self.new_setting.get()})`
 
 ### Modifying Capture Sequence
+
 Edit `_run_capture_sequence()` method. Key sections:
+
 - **Pre-capture setup**: Directory creation, metadata initialization
 - **Main loop**: Perspective iteration with angle calculation
 - **Focus stack loop**: Interpolated focus positioning
 - **Post-capture**: XMP generation via `write_xmp_sidecar()`
 
 ### Testing XMP Changes
+
 **IMPORTANT**: Create test scripts in `temp/` directory (untracked) to avoid repository pollution:
+
 ```python
 # Good: temp/test_xmp_format.py
 # Bad: test_xmp_format.py (tracked in git root)
 ```
 
 **Validation workflow**:
+
 1. Create test script in `temp/` to generate sample XMPs
 2. Import into RealityScan to verify:
    - Dropdown options appear (indicates XMP parsed successfully)
@@ -205,6 +226,7 @@ Edit `_run_capture_sequence()` method. Key sections:
 4. Document findings in `temp/` directory markdown files
 
 **Debugging Rotation Matrix Issues**:
+
 ```python
 # In temp/ test scripts, add validation:
 import numpy as np
@@ -228,6 +250,7 @@ def validate_rotation_matrix(R):
 ```
 
 **Position Scale Auto-Detection** (Future Improvement):
+
 ```python
 # Proposed logic to eliminate user-facing position_scale parameter:
 def auto_scale_positions(distance_mm):
@@ -250,16 +273,19 @@ scaled_distance, scale_factor = auto_scale_positions(distance_mm)
 ## RealityScan Integration
 
 **XMP to UI Mapping**:
+
 - `PosePrior="locked"` → Enables "Relative pose" dropdown (Unknown/Draft/Exact) but prevents refinement
 - `PosePrior="draft"` or `"initial"` → Should allow RealityScan to adjust poses (NEEDS TESTING)
 - `CalibrationPrior="exact"` → Enables "Prior" calibration dropdown
 
 **Current Integration Issues**:
+
 1. **Upside-down models**: Rotation matrix convention in `ring_pose()` is incorrect
 2. **Rigid poses**: Using `"locked"` prevents correction of focus-stacking-induced shifts
 3. **Import failures**: Some `PosePrior` values may break import (needs systematic testing)
 
 **Desired Behavior**:
+
 - XMP should provide **good initial poses** that RealityScan can refine
 - Alignment algorithm should adjust for:
   - Focus stacking position shifts
@@ -268,6 +294,7 @@ scaled_distance, scale_factor = auto_scale_positions(distance_mm)
 - Poses should guide alignment, not rigidly constrain it
 
 **Testing Checklist for XMP Changes**:
+
 1. Import XMP into RealityScan mobile app
 2. Check "Prior pose" dropdown appears correctly
 3. Verify model orientation (not upside-down)
@@ -275,6 +302,7 @@ scaled_distance, scale_factor = auto_scale_positions(distance_mm)
 5. Check that position sequence matches filename order
 
 **Reference Documentation**:
+
 - XMP spec: https://rshelp.capturingreality.com/en-US/tools/xmpalign.htm
 - Camera math: https://dev.epicgames.com/community/learning/knowledge-base/vzwB/realityscan-realitycapture-xmp-camera-math
 - XMP review notes: `temp/xmp_review.md` (filename-to-pose consistency analysis)
@@ -315,14 +343,17 @@ scanner-companion/
 The scanner uses a two-tier configuration system:
 
 ### 1. Local Config (`scanner_config.json`)
+
 Per-scanner settings that override defaults. **Not tracked in git** - each scanner instance has its own.
 
 **Location search order:**
+
 1. `./scanner_config.json` (current directory)
 2. `~/.scanner_config.json` (user home)
 3. Built-in defaults
 
 **Example config:**
+
 ```json
 {
   "profile": "raspberry_pi_3axis",
@@ -347,15 +378,18 @@ Per-scanner settings that override defaults. **Not tracked in git** - each scann
 ```
 
 **Key settings:**
+
 - `profile`: Which hardware profile to load (e.g., "raspberry_pi_3axis")
 - `serial.port`: Arduino serial port (use `/dev/serial/by-id/...` for stability)
 - `capture.output_dir`: Where to save capture sessions
 - `xmp.*`: Default XMP sidecar parameters
 
 ### 2. Hardware Profiles (`profiles/*.json`)
+
 Define scanner hardware capabilities. **Tracked in git** - shared across installations.
 
 **Profile contents:**
+
 - Axis definitions (rotation, linear, tilt)
 - Motor calibration constants
 - Scene geometry defaults
@@ -363,6 +397,7 @@ Define scanner hardware capabilities. **Tracked in git** - shared across install
 - **Arduino hardware configuration** (pinouts, drivers, microstepping)
 
 **Arduino Hardware Section** (`arduino_hardware` in profile):
+
 ```json
 "arduino_hardware": {
   "motors": {
@@ -378,12 +413,14 @@ Define scanner hardware capabilities. **Tracked in git** - shared across install
 ```
 
 **Generate Arduino Config Headers:**
+
 ```bash
 python3 generate_arduino_config.py raspberry_pi_3axis
 # Generates: arduino/config_raspberry_pi_3axis.h
 ```
 
 **Adding a new scanner version:**
+
 1. Create new profile in `profiles/` (e.g., `mkii_shield.json`)
 2. Copy `scanner_config.example.json` to `scanner_config.json`
 3. Set `"profile": "mkii_shield"` in local config
@@ -393,16 +430,19 @@ python3 generate_arduino_config.py raspberry_pi_3axis
 ## Configuration & Settings
 
 **Serial Connection** (`SERIAL_PORT = "/dev/ttyACM0"`):
+
 - Raspberry Pi typically auto-assigns `/dev/ttyACM0` for Arduino Uno
 - Check with `ls /dev/ttyACM*` or use `/dev/serial/by-id/...` for stability
 - **Now configurable via `scanner_config.json`**
 
 **Camera Defaults**:
+
 - Preview: 640x480 (performance)
 - Capture: 4056x3040 (Pi HQ Camera max resolution)
 - Format: JPG (fast), PNG (lossless), TIFF (archival)
 
 **Capture Parameters**:
+
 - Perspectives: 72 (5° steps for 360°) - configurable
 - Focus slices: 5 per angle - configurable
 - Settle delay: 1.0s after movement - allows vibration dampening
@@ -410,14 +450,16 @@ python3 generate_arduino_config.py raspberry_pi_3axis
 ## Development Environment
 
 **Platform**: Raspberry Pi 4+ with Pi Camera Module
-**Python**: 3.8+ 
+**Python**: 3.8+
 **Dependencies**: `pip install -r requirements.txt`
+
 - picamera2 (Pi-specific, camera control)
 - opencv-python (image processing)
 - pyserial (Arduino communication)
 - Pillow (image format conversion)
 
 **Running**:
+
 ```bash
 ./run_scanner.sh  # Bash wrapper with environment setup
 # OR
@@ -425,14 +467,16 @@ python3 scanner_control.py
 ```
 
 **Hardware Setup Checklist**:
+
 1. Arduino loaded with `arduino/scanner_controller/scanner_controller.ino`
-2. Stepper drivers wired per `docs/hardware_setup.md`
+2. Stepper drivers wired per `docs/current/hardware_setup.md`
 3. Pi Camera connected and enabled (`sudo raspi-config`)
 4. Serial permissions: `sudo usermod -a -G dialout $USER`
 
 ## Critical Warnings
 
 ### DO NOT:
+
 - Modify XMP formatting (spacing, line breaks, attribute order) - these are correct
 - Use values other than "locked"/"exact" for pose/calibration priors without systematic testing
 - Create scripts in repository root (use `temp/` directory)
@@ -440,6 +484,7 @@ python3 scanner_control.py
 - Assume current rotation matrix convention is correct (it produces upside-down models)
 
 ### ALWAYS:
+
 - Create temporary/test scripts in `temp/` directory
 - Test XMP changes in RealityScan before committing to codebase
 - Validate rotation matrices are orthonormal (use numpy checks)
@@ -448,6 +493,7 @@ python3 scanner_control.py
 - Query Arduino position after movements for position verification
 
 ### NEEDS INVESTIGATION:
+
 1. **Rotation matrix convention**: Current implementation produces upside-down models
    - Try different axis arrangements (e.g., swap up/down, invert forward)
    - Test with minimal XMP (single camera) before full sequence
@@ -462,12 +508,14 @@ python3 scanner_control.py
 ## Testing & Validation
 
 **Hardware Test Workflow**:
+
 1. Manual Control tab: Test individual motor movements
 2. Calibration tab: Run cardinal point calibration
 3. Capture tab: Single test capture before full sequence
 4. Verify serial communication: Check status bar for errors
 
 **XMP Validation**:
+
 1. Generate test XMP files in `temp/` directory
 2. Import into RealityScan mobile app
 3. Check "Prior pose" and "Calibration" dropdowns appear
@@ -476,21 +524,25 @@ python3 scanner_control.py
 ## Troubleshooting
 
 **Serial Connection Issues**:
+
 - Check Arduino is connected: `ls /dev/ttyACM*`
 - Verify firmware loaded: Arduino IDE Serial Monitor should show "Ready for ROTATE, MOVE, TILT, ZERO, GET_POS, POWER, GET_POWER, DEBUG_PINS"
 - Permission error: Add user to dialout group
 
 **Camera Failures**:
+
 - `picamera2` import error: Raspberry Pi only, ensure system packages installed
 - Black screen: Check camera cable connection, enable camera in raspi-config
 - Resolution error: Stop preview before capture, ensure sensor supports requested resolution
 
 **Motor Movement Problems**:
+
 - No movement: Check enable pin wiring, driver power supply
 - Wrong direction: Adjust `DIR_REVERSE_M1`/`DIR_REVERSE_M2`/`DIR_REVERSE_M3` in Arduino code
 - Position drift: Use limit switches for homing, re-zero positions
 
 **XMP Import Failures in RealityScan**:
+
 - Compare against working reference XMP files in `temp/small_fly_9/`
 - Check for line breaks within attribute values
 - Verify spelling: "DistortionCoeficients" not "Coefficients"
@@ -499,6 +551,7 @@ python3 scanner_control.py
 ## Session Continuity Notes
 
 When starting new development session, remember:
+
 1. **XMP generation is under active debugging** - models render upside-down
 2. Reference files in `temp/small_fly_9/` show current output format
 3. Test scripts always go in `temp/` directory (untracked)
@@ -506,5 +559,5 @@ When starting new development session, remember:
 5. Serial protocol: Commands are synchronous, wait for "OK" response
 6. Position scale should be auto-detected, not user-configurable
 7. PosePrior should allow refinement ("draft"), not lock poses ("locked")
-6. Position scale should be auto-detected, not user-configurable
-7. PosePrior should allow refinement ("draft"), not lock poses ("locked")
+8. Position scale should be auto-detected, not user-configurable
+9. PosePrior should allow refinement ("draft"), not lock poses ("locked")
