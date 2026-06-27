@@ -1,5 +1,7 @@
 # Scanner Companion Architecture
 
+Status: Reference (contains both implemented and planned architecture)
+
 This document defines the vocabulary, coordinate systems, and machine abstraction model for Scanner Companion. It serves as the foundation for supporting multiple hardware configurations with a unified software interface.
 
 ## Design Philosophy
@@ -36,31 +38,31 @@ All machines use a **right-handed, Z-up coordinate system**:
 
 ### Core Concepts
 
-| Term | Definition |
-|------|------------|
-| **Specimen** | The object being scanned. Conceptually fixed at origin (0,0,0), though it may physically move during scanning. |
-| **Perspective** | A single camera viewpoint. One perspective = one focus stack. |
-| **Focus Stack** | Multiple images at different focus distances from the same perspective. |
-| **Session** | A complete capture run: all perspectives × all focus slices. |
+| Term            | Definition                                                                                                     |
+| --------------- | -------------------------------------------------------------------------------------------------------------- |
+| **Specimen**    | The object being scanned. Conceptually fixed at origin (0,0,0), though it may physically move during scanning. |
+| **Perspective** | A single camera viewpoint. One perspective = one focus stack.                                                  |
+| **Focus Stack** | Multiple images at different focus distances from the same perspective.                                        |
+| **Session**     | A complete capture run: all perspectives × all focus slices.                                                   |
 
 ### Axis Roles
 
-| Role | Description | Motion Type | Example |
-|------|-------------|-------------|---------|
-| `focus_rail` | Moves camera toward/away from specimen for focus stacking | Linear | Camera on rail |
-| `turntable` | Rotates specimen around a vertical axis | Rotary | Spinning platform |
-| `tilt` | Changes camera elevation angle relative to specimen | Rotary | Tilting arm or specimen |
-| `specimen_rotation` | Alternative turntable with different axis orientation | Rotary | 4th axis rotary table |
-| `camera_orbit` | Swings camera around specimen | Rotary | Camera arm rotation |
-| `bed_positioning` | Moves specimen to maintain centering (not for scanning) | Linear | Mill X/Y table |
+| Role                | Description                                               | Motion Type | Example                 |
+| ------------------- | --------------------------------------------------------- | ----------- | ----------------------- |
+| `focus_rail`        | Moves camera toward/away from specimen for focus stacking | Linear      | Camera on rail          |
+| `turntable`         | Rotates specimen around a vertical axis                   | Rotary      | Spinning platform       |
+| `tilt`              | Changes camera elevation angle relative to specimen       | Rotary      | Tilting arm or specimen |
+| `specimen_rotation` | Alternative turntable with different axis orientation     | Rotary      | 4th axis rotary table   |
+| `camera_orbit`      | Swings camera around specimen                             | Rotary      | Camera arm rotation     |
+| `bed_positioning`   | Moves specimen to maintain centering (not for scanning)   | Linear      | Mill X/Y table          |
 
 ### Motion Relationships
 
-| Scanner Type | What Moves | What's Fixed | Effect |
-|--------------|------------|--------------|--------|
-| **Specimen-rotating** | Specimen spins, camera slides | Camera arc center | MKI style |
-| **Camera-orbiting** | Camera orbits, specimen may rotate | Specimen position | MKII style |
-| **Hybrid** | Both move in coordination | Relative geometry | Complex multi-axis |
+| Scanner Type          | What Moves                         | What's Fixed      | Effect             |
+| --------------------- | ---------------------------------- | ----------------- | ------------------ |
+| **Specimen-rotating** | Specimen spins, camera slides      | Camera arc center | MKI style          |
+| **Camera-orbiting**   | Camera orbits, specimen may rotate | Specimen position | MKII style         |
+| **Hybrid**            | Both move in coordination          | Relative geometry | Complex multi-axis |
 
 ---
 
@@ -152,7 +154,7 @@ Front View (Y=0 plane):                   Top View (Z=50 plane):
   "name": "profile_name",
   "description": "Human-readable description",
   "version": "1.0",
-  
+
   "axes": [
     {
       "name": "M1",
@@ -173,7 +175,7 @@ Front View (Y=0 plane):                   Top View (Z=50 plane):
       "role": "turntable"
     }
   ],
-  
+
   "controllers": [
     {
       "controller_type": "arduino_serial|grbl|linuxcnc|mock",
@@ -183,20 +185,20 @@ Front View (Y=0 plane):                   Top View (Z=50 plane):
       "settings": {}
     }
   ],
-  
+
   "axis_controller_map": {
     "M1": "controller_name"
   },
-  
+
   "scene_geometry": {
     "coordinate_system": "Z-up, right-handed",
-    
+
     "specimen": {
       "position": [0, 0, 0],
       "mounted_on": null,
       "notes": ""
     },
-    
+
     "axes_geometry": {
       "AXIS_NAME": {
         "role": "turntable|focus_rail|tilt|camera_orbit|bed_positioning",
@@ -207,7 +209,7 @@ Front View (Y=0 plane):                   Top View (Z=50 plane):
         "positive_direction": "description of positive movement"
       }
     },
-    
+
     "camera": {
       "mounted_on": "AXIS_NAME",
       "looks_at": "specimen",
@@ -215,14 +217,14 @@ Front View (Y=0 plane):                   Top View (Z=50 plane):
       "notes": ""
     }
   },
-  
+
   "power_relay": {
     "enabled": true,
     "controller": "controller_name",
     "pin": "A0",
     "active_low": true
   },
-  
+
   "scan_defaults": {
     "perspectives": 72,
     "focus_slices": 5,
@@ -234,18 +236,18 @@ Front View (Y=0 plane):                   Top View (Z=50 plane):
 
 ### Scene Geometry Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `coordinate_system` | string | Reference frame description |
-| `specimen.position` | [x,y,z] | Specimen center in world coordinates |
-| `specimen.mounted_on` | string? | Axis name if specimen moves with an axis |
-| `axes_geometry.*.role` | string | Semantic role (see Axis Roles above) |
-| `axes_geometry.*.motion_type` | string | "rotation" or "linear" |
-| `axes_geometry.*.axis_vector` | [x,y,z] | Unit vector for rotation/motion axis |
-| `axes_geometry.*.pivot_point` | [x,y,z] | Center of rotation (rotary) or start position (linear) |
-| `axes_geometry.*.positive_direction` | string | Human description of positive movement |
-| `camera.mounted_on` | string | Which axis the camera moves with |
-| `camera.home_orientation` | [x,y,z] | Direction camera faces at home position |
+| Field                                | Type    | Description                                            |
+| ------------------------------------ | ------- | ------------------------------------------------------ |
+| `coordinate_system`                  | string  | Reference frame description                            |
+| `specimen.position`                  | [x,y,z] | Specimen center in world coordinates                   |
+| `specimen.mounted_on`                | string? | Axis name if specimen moves with an axis               |
+| `axes_geometry.*.role`               | string  | Semantic role (see Axis Roles above)                   |
+| `axes_geometry.*.motion_type`        | string  | "rotation" or "linear"                                 |
+| `axes_geometry.*.axis_vector`        | [x,y,z] | Unit vector for rotation/motion axis                   |
+| `axes_geometry.*.pivot_point`        | [x,y,z] | Center of rotation (rotary) or start position (linear) |
+| `axes_geometry.*.positive_direction` | string  | Human description of positive movement                 |
+| `camera.mounted_on`                  | string  | Which axis the camera moves with                       |
+| `camera.home_orientation`            | [x,y,z] | Direction camera faces at home position                |
 
 ---
 
@@ -350,7 +352,7 @@ Rotation: 3x3 matrix, row-major, transforms world → camera coordinates
 ### Completed
 
 - [x] `AxisConfig` dataclass
-- [x] `MachineProfile` dataclass  
+- [x] `MachineProfile` dataclass
 - [x] `MotionController` abstract base class
 - [x] `ArduinoSerialController` implementation
 - [x] Profile JSON format

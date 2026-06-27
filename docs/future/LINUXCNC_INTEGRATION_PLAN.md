@@ -1,5 +1,7 @@
 # LinuxCNC Integration Plan
 
+Status: Future (planned, not implemented in current scanner workflow)
+
 This document outlines the plan to integrate scanner-companion with a LinuxCNC-controlled Sherline 4-axis machine for precision photogrammetry scanning.
 
 ## Overview
@@ -43,35 +45,35 @@ Instead of using a single Raspberry Pi with Arduino for motor control, this conf
 
 ### LinuxCNC Rig (cnc-rig - 10.0.0.78)
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| Debian 12 (Bookworm) | ✅ Installed | |
-| LinuxCNC 2.9.2 | ✅ Installed | uspace variant |
-| Python 3.11 | ✅ Available | |
-| LinuxCNC Python bindings | ✅ Available | `import linuxcnc` works |
-| Sherline 4-axis config | ✅ Configured | X, Y, Z linear + A rotary |
-| Network connection | ✅ Connected | 10.0.0.78 |
+| Component                | Status        | Notes                     |
+| ------------------------ | ------------- | ------------------------- |
+| Debian 12 (Bookworm)     | ✅ Installed  |                           |
+| LinuxCNC 2.9.2           | ✅ Installed  | uspace variant            |
+| Python 3.11              | ✅ Available  |                           |
+| LinuxCNC Python bindings | ✅ Available  | `import linuxcnc` works   |
+| Sherline 4-axis config   | ✅ Configured | X, Y, Z linear + A rotary |
+| Network connection       | ✅ Connected  | 10.0.0.78                 |
 
 ### Raspberry Pi (Scanner Controller)
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| Raspberry Pi 4 | ⬜ TBD | Needs assignment |
-| Pi HQ Camera | ⬜ TBD | Ribbon connection |
-| picamera2 | ⬜ TBD | Camera library |
-| Arduino | ⬜ TBD | USB connection for I/O |
-| scanner-companion repo | ⬜ TBD | Clone and configure |
+| Component              | Status | Notes                  |
+| ---------------------- | ------ | ---------------------- |
+| Raspberry Pi 4         | ⬜ TBD | Needs assignment       |
+| Pi HQ Camera           | ⬜ TBD | Ribbon connection      |
+| picamera2              | ⬜ TBD | Camera library         |
+| Arduino                | ⬜ TBD | USB connection for I/O |
+| scanner-companion repo | ⬜ TBD | Clone and configure    |
 
 ## Sherline Axis Mapping
 
 The Sherline 4-axis configuration maps naturally to scanner operations:
 
-| Sherline Axis | Scanner Function | Range | Units |
-|---------------|------------------|-------|-------|
-| **A** (Joint 3) | Turntable rotation | ±36000° | degrees |
-| **Z** (Joint 2) | Focus rail (lens distance) | ±300mm | mm |
-| **X** (Joint 0) | Horizontal specimen offset | ±400mm | mm |
-| **Y** (Joint 1) | Depth specimen offset | ±300mm | mm |
+| Sherline Axis   | Scanner Function           | Range   | Units   |
+| --------------- | -------------------------- | ------- | ------- |
+| **A** (Joint 3) | Turntable rotation         | ±36000° | degrees |
+| **Z** (Joint 2) | Focus rail (lens distance) | ±300mm  | mm      |
+| **X** (Joint 0) | Horizontal specimen offset | ±400mm  | mm      |
+| **Y** (Joint 1) | Depth specimen offset      | ±300mm  | mm      |
 
 **Note**: The A axis supports continuous rotation (±36000° = 100 full rotations), perfect for 360° scanning.
 
@@ -80,11 +82,13 @@ The Sherline 4-axis configuration maps naturally to scanner operations:
 ### Phase 1: LinuxCNC Motion Server (On cnc-rig)
 
 Create `linuxcnc_server.py` - a TCP server that:
+
 1. Listens on port 5000 for incoming commands
 2. Translates commands to LinuxCNC MDI G-code
 3. Returns status/completion to client
 
 **Command Protocol** (compatible with existing scanner_control.py):
+
 ```
 ROTATE A <degrees> <CW|CCW>     → G91 A±<degrees>
 MOVE Z <mm> <FORWARD|BACKWARD>  → G91 Z±<mm>
@@ -97,6 +101,7 @@ STATUS                          → Return LinuxCNC state
 ```
 
 **Response Protocol**:
+
 ```
 OK                              → Command completed successfully
 ERR: <message>                  → Error with description
@@ -106,27 +111,28 @@ ERR: <message>                  → Error with description
 ### Phase 2: Network Motor Driver (On Raspberry Pi)
 
 Create `NetworkMotorDriver` class in scanner_control.py:
+
 ```python
 class NetworkMotorDriver:
     """Motor driver that communicates with LinuxCNC over TCP"""
-    
+
     def __init__(self, host='10.0.0.78', port=5000):
         self.host = host
         self.port = port
         self.socket = None
-    
+
     def connect(self):
         """Establish connection to LinuxCNC server"""
         pass
-    
+
     def send_command(self, command, timeout=120):
         """Send command and wait for response"""
         pass
-    
+
     def rotate(self, degrees, direction='CW'):
         """Rotate turntable (A axis)"""
         pass
-    
+
     def move_focus(self, mm, direction='FORWARD'):
         """Move focus rail (Z axis)"""
         pass
@@ -155,6 +161,7 @@ ARDUINO_CONFIG = {
 ### Phase 4: Arduino Role (Optional I/O)
 
 The Arduino connected to the Raspberry Pi handles auxiliary functions:
+
 - Camera shutter trigger (for cameras requiring hardware trigger)
 - LED ring/panel lighting control
 - Limit switch monitoring (if not handled by LinuxCNC)
@@ -169,6 +176,7 @@ This is the existing Arduino sketch functionality, just with motor control remov
 **Port**: 5000 (configurable)
 
 **Connection Flow**:
+
 1. Client connects to server
 2. Server sends: `READY\n`
 3. Client sends commands, one per line
@@ -176,6 +184,7 @@ This is the existing Arduino sketch functionality, just with motor control remov
 5. Connection remains open for session
 
 **Timeout Handling**:
+
 - Command timeout: 120 seconds (for long moves)
 - Connection timeout: 5 seconds
 - Keepalive: Optional ping every 30 seconds
