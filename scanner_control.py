@@ -383,7 +383,8 @@ def write_xmp_sidecar(img_path: str, pose: RigPose,
         in row-major order. Per RealityCapture XMP Camera Math, Rotation and Position
         are encoded as child elements, not attributes.
     """
-    XCR_NS = 'http://www.capturingreality.com/ns/xcr/1.1#'
+    # XML namespace identifier required verbatim by RealityCapture; never fetched over the network
+    XCR_NS = 'http://www.capturingreality.com/ns/xcr/1.1#'  # NOSONAR
 
     # Per RealityCapture documentation: Position is the CAMERA location in world coordinates
     # The rotation matrix R transforms world coordinates to camera coordinates

@@ -15,14 +15,34 @@ import os
 import sys
 from datetime import datetime
 
+def available_profiles() -> dict:
+    """Map profile names to their JSON file paths in the profiles directory."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    profiles_dir = os.path.join(script_dir, "profiles")
+    return {
+        f[:-5]: os.path.join(profiles_dir, f)
+        for f in sorted(os.listdir(profiles_dir))
+        if f.endswith(".json")
+    }
+
+
+def resolve_profile_name(requested: str) -> str:
+    """Return the known profile name matching the request.
+
+    The returned name comes from the profiles directory listing rather than
+    from the caller, so it is safe to use when building file paths.
+    """
+    for name in available_profiles():
+        if name == requested:
+            return name
+    raise FileNotFoundError(f"Profile not found: {requested}")
+
+
 def load_profile(profile_name: str) -> dict:
     """Load a hardware profile by name."""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    profile_path = os.path.join(script_dir, "profiles", f"{profile_name}.json")
-    
-    if not os.path.exists(profile_path):
-        raise FileNotFoundError(f"Profile not found: {profile_path}")
-    
+    profiles = available_profiles()
+    profile_path = profiles[resolve_profile_name(profile_name)]
+
     with open(profile_path, 'r') as f:
         return json.load(f)
 
@@ -176,14 +196,18 @@ def main():
     if len(sys.argv) < 2:
         print("Usage: python3 generate_arduino_config.py <profile_name>")
         print("  Available profiles:")
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        profiles_dir = os.path.join(script_dir, "profiles")
-        for f in os.listdir(profiles_dir):
-            if f.endswith(".json"):
-                print(f"    - {f[:-5]}")
+        for name in available_profiles():
+            print(f"    - {name}")
         sys.exit(1)
     
-    profile_name = sys.argv[1]
+    try:
+        profile_name = resolve_profile_name(sys.argv[1])
+    except FileNotFoundError as e:
+        print(e)
+        print("  Available profiles:")
+        for name in available_profiles():
+            print(f"    - {name}")
+        sys.exit(1)
     profile = load_profile(profile_name)
     
     # Determine which type of hardware
